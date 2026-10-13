@@ -5,7 +5,26 @@
  * Do NOT call fetch() directly in components or hooks — use this client.
  */
 
-const BASE = '/api'
+function resolveUrl(path: string): string {
+  const rawBase = (import.meta.env.VITE_API_BASE_URL || '/api').trim()
+  const base = rawBase.replace(/\/+$/, '')
+  const normPath = path.startsWith('/') ? path : `/${path}`
+
+  if (base.endsWith('/api')) {
+    if (normPath === '/api') {
+      return base
+    }
+    if (normPath.startsWith('/api/')) {
+      return `${base}${normPath.slice(4)}`
+    }
+    return `${base}${normPath}`
+  }
+
+  if (normPath === '/api' || normPath.startsWith('/api/')) {
+    return `${base}${normPath}`
+  }
+  return `${base}/api${normPath}`
+}
 
 /* ── Custom error ─────────────────────────────────────────── */
 
@@ -27,14 +46,14 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const url = `${BASE}${path}`
+  const url = resolveUrl(path)
   let res: Response
   try {
     res = await fetch(url, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       ...options,
     })
-  } catch (err) {
+  } catch {
     throw new ApiError(0, `Network error — could not reach ${url}`)
   }
 
