@@ -1,0 +1,352 @@
+{
+    "summaries": [
+        {
+            "id": 163,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "loss",
+            "metric_value": 1.5252,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 162,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "false_positive_rate",
+            "metric_value": 17.22,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 161,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "f1",
+            "metric_value": 21.51,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 160,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "recall",
+            "metric_value": 29.22,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 159,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "precision",
+            "metric_value": 24.08,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 158,
+            "timestamp": "2026-10-01T05:24:04.992839+00:00",
+            "metric_name": "accuracy",
+            "metric_value": 34.2,
+            "model_type": "non_iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 157,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "loss",
+            "metric_value": 1.1905,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 156,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "false_positive_rate",
+            "metric_value": 9.12,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 155,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "f1",
+            "metric_value": 53.54,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 154,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "recall",
+            "metric_value": 55.59,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 153,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "precision",
+            "metric_value": 66.25,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        },
+        {
+            "id": 152,
+            "timestamp": "2026-10-01T05:24:01.095044+00:00",
+            "metric_name": "accuracy",
+            "metric_value": 65.03,
+            "model_type": "iid",
+            "org_id": null,
+            "round_number": null,
+            "category": "experiment_summary"
+        }
+    ],
+    "privacy": [
+        {
+            "model_type": "iid",
+            "metric_name": "update_creation",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "clipping",
+            "metric_value": 18.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "noise_addition",
+            "metric_value": 18.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "transmission",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "validation",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "rejected",
+            "metric_value": 0.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__clipping_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__clip_norm",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__dp_noise_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__noise_multiplier",
+            "metric_value": 0.1,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__noise_std",
+            "metric_value": 0.1,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__epsilon_per_round",
+            "metric_value": 48.4481,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__delta",
+            "metric_value": 1e-05,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__validation_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__max_update_norm",
+            "metric_value": 10.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "iid",
+            "metric_name": "config__max_param_value",
+            "metric_value": 100.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "update_creation",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "clipping",
+            "metric_value": 18.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "noise_addition",
+            "metric_value": 18.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "transmission",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "validation",
+            "metric_value": 9.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "rejected",
+            "metric_value": 0.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__clipping_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__clip_norm",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__dp_noise_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__noise_multiplier",
+            "metric_value": 0.1,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__noise_std",
+            "metric_value": 0.1,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__epsilon_per_round",
+            "metric_value": 48.4481,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__delta",
+            "metric_value": 1e-05,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__validation_enabled",
+            "metric_value": 1.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__max_update_norm",
+            "metric_value": 10.0,
+            "round_number": null,
+            "org_id": null
+        },
+        {
+            "model_type": "non_iid",
+            "metric_name": "config__max_param_value",
+            "metric_value": 100.0,
+            "round_number": null,
+            "org_id": null
+        }
+    ],
+    "performance": [],
+    "rounds": []
+}

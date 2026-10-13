@@ -1,0 +1,107 @@
+# ==============================================================================
+# CYBER-20 Federated Collaborative Threat Detection — .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environment Secrets & Credentials (NEVER COMMIT)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa*
+*.pfx
+*.p12
+
+# ------------------------------------------------------------------------------
+# 2. Python & Virtual Environments
+# ------------------------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+backend/.venv/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*/*/*/__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# ------------------------------------------------------------------------------
+# 3. Testing & Coverage
+# ------------------------------------------------------------------------------
+.pytest_cache/
+backend/.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ------------------------------------------------------------------------------
+# 4. Node.js & Frontend Build Outputs
+# ------------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+dist/
+dist-ssr/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 5. Local Databases
+# SQLite databases are auto-created and seeded on application startup.
+# ------------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+cyber20.db
+backend/cyber20.db
+
+# ------------------------------------------------------------------------------
+# 6. Raw Datasets & Nested Dataset Repository
+# Raw CIC-IDS2017 CSV files (843 MB total) exceed GitHub file limits.
+# data/CIC-IDS2017 is an external Git clone from HuggingFace.
+# ------------------------------------------------------------------------------
+data/CIC-IDS2017/
+data/*.csv
+data/**/*.csv
+*.pcap
+*.pcap_ISCX.csv
+
+# ------------------------------------------------------------------------------
+# 7. Machine Learning Artifacts & Checkpoints
+# ------------------------------------------------------------------------------
+# Exclude historical experiment runs (preserved on disk)
+backend/models/exp_*/
+checkpoints/
+*.checkpoint
+
+# Whitelist essential cleaned dataset, latest production model, and benchmark records
+!backend/app/ml/cicids2017_clean.npz
+!backend/models/latest/
+!backend/models/latest/*
+!backend/experiment_results.json
+
+# ------------------------------------------------------------------------------
+# 8. Operating System & Editor Files
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,34 @@
+[
+    {
+        "name": "organizations",
+        "sql": "CREATE TABLE organizations (\n\tid VARCHAR(32) NOT NULL, \n\tname VARCHAR(128) NOT NULL, \n\tdescription TEXT NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tdataset_size INTEGER NOT NULL, \n\tparticipation_rate FLOAT NOT NULL, \n\tlocal_model_status VARCHAR(16) NOT NULL, \n\tlocal_model_accuracy FLOAT, \n\tcurrent_round INTEGER NOT NULL, \n\tlast_update VARCHAR(32) NOT NULL, \n\tjoined_at VARCHAR(32) NOT NULL, \n\tprivacy_mode VARCHAR(64) NOT NULL, \n\tdata_distribution_json TEXT NOT NULL, \n\tPRIMARY KEY (id)\n)"
+    },
+    {
+        "name": "training_rounds",
+        "sql": "CREATE TABLE training_rounds (\n\tid INTEGER NOT NULL, \n\tround_number INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tstarted_at VARCHAR(32) NOT NULL, \n\tcompleted_at VARCHAR(32), \n\tduration_s INTEGER, \n\tparticipating_clients INTEGER NOT NULL, \n\ttotal_clients INTEGER NOT NULL, \n\taccuracy FLOAT NOT NULL, \n\tloss FLOAT NOT NULL, \n\tf1 FLOAT NOT NULL, \n\tmodel_version VARCHAR(16) NOT NULL, \n\taggregation_method VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (id)\n)"
+    },
+    {
+        "name": "validation_tests",
+        "sql": "CREATE TABLE validation_tests (\n\tid VARCHAR(16) NOT NULL, \n\tname VARCHAR(128) NOT NULL, \n\tcategory VARCHAR(64) NOT NULL, \n\tdescription TEXT NOT NULL, \n\texpected_result TEXT NOT NULL, \n\tactual_result TEXT, \n\tstatus VARCHAR(16) NOT NULL, \n\texecution_state VARCHAR(16) NOT NULL, \n\ttimestamp VARCHAR(32), \n\tnotes TEXT NOT NULL, \n\tPRIMARY KEY (id)\n)"
+    },
+    {
+        "name": "client_participations",
+        "sql": "CREATE TABLE client_participations (\n\tid INTEGER NOT NULL, \n\tround_id INTEGER NOT NULL, \n\torg_id VARCHAR(32) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tlocal_accuracy FLOAT, \n\tlocal_loss FLOAT, \n\tsamples_used INTEGER, \n\tduration_s INTEGER, \n\tupdate_size_mb FLOAT, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(round_id) REFERENCES training_rounds (id) ON DELETE CASCADE, \n\tFOREIGN KEY(org_id) REFERENCES organizations (id) ON DELETE CASCADE\n)"
+    },
+    {
+        "name": "model_versions",
+        "sql": "CREATE TABLE model_versions (\n\tid INTEGER NOT NULL, \n\tversion VARCHAR(16) NOT NULL, \n\tround_id INTEGER, \n\taccuracy FLOAT NOT NULL, \n\tloss FLOAT NOT NULL, \n\tf1 FLOAT NOT NULL, \n\tfalse_positive_rate FLOAT NOT NULL, \n\tcreated_at VARCHAR(32) NOT NULL, \n\tis_global BOOLEAN NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(round_id) REFERENCES training_rounds (id) ON DELETE SET NULL\n)"
+    },
+    {
+        "name": "threat_detections",
+        "sql": "CREATE TABLE threat_detections (\n\tid VARCHAR(32) NOT NULL, \n\ttimestamp VARCHAR(32) NOT NULL, \n\torg_id VARCHAR(32), \n\torganization_name VARCHAR(128) NOT NULL, \n\tthreat_type VARCHAR(64) NOT NULL, \n\tseverity VARCHAR(16) NOT NULL, \n\tconfidence FLOAT NOT NULL, \n\tstatus VARCHAR(32) NOT NULL, \n\tmodel_version VARCHAR(16) NOT NULL, \n\tsource_ip VARCHAR(45) NOT NULL, \n\tdestination_ip VARCHAR(45) NOT NULL, \n\tprotocol VARCHAR(8) NOT NULL, \n\tport INTEGER NOT NULL, \n\tdescription TEXT NOT NULL, \n\traw_features_json TEXT NOT NULL, \n\tdetection_method VARCHAR(16) NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(org_id) REFERENCES organizations (id) ON DELETE SET NULL\n)"
+    },
+    {
+        "name": "metrics",
+        "sql": "CREATE TABLE metrics (\n\tid INTEGER NOT NULL, \n\ttimestamp VARCHAR(32) NOT NULL, \n\tmetric_name VARCHAR(64) NOT NULL, \n\tmetric_value FLOAT NOT NULL, \n\tmodel_type VARCHAR(16) NOT NULL, \n\torg_id VARCHAR(32), \n\tround_number INTEGER, \n\tcategory VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(org_id) REFERENCES organizations (id) ON DELETE SET NULL\n)"
+    },
+    {
+        "name": "privacy_events",
+        "sql": "CREATE TABLE privacy_events (\n\tid VARCHAR(32) NOT NULL, \n\ttimestamp VARCHAR(32) NOT NULL, \n\torg_id VARCHAR(32), \n\tevent_type VARCHAR(128) NOT NULL, \n\tcategory VARCHAR(64) NOT NULL, \n\tseverity VARCHAR(16) NOT NULL, \n\tstatus VARCHAR(32) NOT NULL, \n\tdetail TEXT NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(org_id) REFERENCES organizations (id) ON DELETE SET NULL\n)"
+    }
+]

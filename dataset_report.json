@@ -1,0 +1,104 @@
+[
+    {
+        "File": "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+        "Rows": 225745,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "DDoS": 128027,
+            "BENIGN": 97718
+        },
+        "Missing Values": 4,
+        "Infinite Values": 64
+    },
+    {
+        "File": "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+        "Rows": 286467,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "PortScan": 158930,
+            "BENIGN": 127537
+        },
+        "Missing Values": 15,
+        "Infinite Values": 727
+    },
+    {
+        "File": "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+        "Rows": 191033,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 189067,
+            "Bot": 1966
+        },
+        "Missing Values": 28,
+        "Infinite Values": 216
+    },
+    {
+        "File": "Monday-WorkingHours.pcap_ISCX.csv",
+        "Rows": 529918,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 529918
+        },
+        "Missing Values": 64,
+        "Infinite Values": 810
+    },
+    {
+        "File": "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+        "Rows": 288602,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 288566,
+            "Infiltration": 36
+        },
+        "Missing Values": 18,
+        "Infinite Values": 396
+    },
+    {
+        "File": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+        "Rows": 170366,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 168186,
+            "Web Attack \ufffd Brute Force": 1507,
+            "Web Attack \ufffd XSS": 652,
+            "Web Attack \ufffd Sql Injection": 21
+        },
+        "Missing Values": 20,
+        "Infinite Values": 250
+    },
+    {
+        "File": "Tuesday-WorkingHours.pcap_ISCX.csv",
+        "Rows": 445909,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 432074,
+            "FTP-Patator": 7938,
+            "SSH-Patator": 5897
+        },
+        "Missing Values": 201,
+        "Infinite Values": 327
+    },
+    {
+        "File": "Wednesday-workingHours.pcap_ISCX.csv",
+        "Rows": 692703,
+        "Columns": 79,
+        "Label Column": "Label",
+        "Labels": {
+            "BENIGN": 440031,
+            "DoS Hulk": 231073,
+            "DoS GoldenEye": 10293,
+            "DoS slowloris": 5796,
+            "DoS Slowhttptest": 5499,
+            "Heartbleed": 11
+        },
+        "Missing Values": 1008,
+        "Infinite Values": 1586
+    }
+]

@@ -1,0 +1,397 @@
+[
+    {
+        "column": "Destination Port",
+        "dtype": "int64",
+        "nunique": 72
+    },
+    {
+        "column": "Flow Duration",
+        "dtype": "int64",
+        "nunique": 61
+    },
+    {
+        "column": "Total Fwd Packets",
+        "dtype": "int64",
+        "nunique": 11
+    },
+    {
+        "column": "Total Backward Packets",
+        "dtype": "int64",
+        "nunique": 9
+    },
+    {
+        "column": "Total Length of Fwd Packets",
+        "dtype": "int64",
+        "nunique": 24
+    },
+    {
+        "column": "Total Length of Bwd Packets",
+        "dtype": "int64",
+        "nunique": 19
+    },
+    {
+        "column": "Fwd Packet Length Max",
+        "dtype": "int64",
+        "nunique": 18
+    },
+    {
+        "column": "Fwd Packet Length Min",
+        "dtype": "int64",
+        "nunique": 8
+    },
+    {
+        "column": "Fwd Packet Length Mean",
+        "dtype": "float64",
+        "nunique": 22
+    },
+    {
+        "column": "Fwd Packet Length Std",
+        "dtype": "float64",
+        "nunique": 17
+    },
+    {
+        "column": "Bwd Packet Length Max",
+        "dtype": "int64",
+        "nunique": 18
+    },
+    {
+        "column": "Bwd Packet Length Min",
+        "dtype": "int64",
+        "nunique": 12
+    },
+    {
+        "column": "Bwd Packet Length Mean",
+        "dtype": "float64",
+        "nunique": 18
+    },
+    {
+        "column": "Bwd Packet Length Std",
+        "dtype": "float64",
+        "nunique": 8
+    },
+    {
+        "column": "Flow Bytes/s",
+        "dtype": "float64",
+        "nunique": 62
+    },
+    {
+        "column": "Flow Packets/s",
+        "dtype": "float64",
+        "nunique": 66
+    },
+    {
+        "column": "Flow IAT Mean",
+        "dtype": "float64",
+        "nunique": 65
+    },
+    {
+        "column": "Flow IAT Std",
+        "dtype": "float64",
+        "nunique": 34
+    },
+    {
+        "column": "Flow IAT Max",
+        "dtype": "int64",
+        "nunique": 60
+    },
+    {
+        "column": "Flow IAT Min",
+        "dtype": "int64",
+        "nunique": 39
+    },
+    {
+        "column": "Fwd IAT Total",
+        "dtype": "int64",
+        "nunique": 34
+    },
+    {
+        "column": "Fwd IAT Mean",
+        "dtype": "float64",
+        "nunique": 36
+    },
+    {
+        "column": "Fwd IAT Std",
+        "dtype": "float64",
+        "nunique": 24
+    },
+    {
+        "column": "Fwd IAT Max",
+        "dtype": "int64",
+        "nunique": 33
+    },
+    {
+        "column": "Fwd IAT Min",
+        "dtype": "int64",
+        "nunique": 17
+    },
+    {
+        "column": "Bwd IAT Total",
+        "dtype": "int64",
+        "nunique": 14
+    },
+    {
+        "column": "Bwd IAT Mean",
+        "dtype": "float64",
+        "nunique": 14
+    },
+    {
+        "column": "Bwd IAT Std",
+        "dtype": "float64",
+        "nunique": 10
+    },
+    {
+        "column": "Bwd IAT Max",
+        "dtype": "int64",
+        "nunique": 14
+    },
+    {
+        "column": "Bwd IAT Min",
+        "dtype": "int64",
+        "nunique": 10
+    },
+    {
+        "column": "Fwd PSH Flags",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "Bwd PSH Flags",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Fwd URG Flags",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Bwd URG Flags",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Fwd Header Length",
+        "dtype": "int64",
+        "nunique": 17
+    },
+    {
+        "column": "Bwd Header Length",
+        "dtype": "int64",
+        "nunique": 14
+    },
+    {
+        "column": "Fwd Packets/s",
+        "dtype": "float64",
+        "nunique": 65
+    },
+    {
+        "column": "Bwd Packets/s",
+        "dtype": "float64",
+        "nunique": 50
+    },
+    {
+        "column": "Min Packet Length",
+        "dtype": "int64",
+        "nunique": 8
+    },
+    {
+        "column": "Max Packet Length",
+        "dtype": "int64",
+        "nunique": 22
+    },
+    {
+        "column": "Packet Length Mean",
+        "dtype": "float64",
+        "nunique": 28
+    },
+    {
+        "column": "Packet Length Std",
+        "dtype": "float64",
+        "nunique": 25
+    },
+    {
+        "column": "Packet Length Variance",
+        "dtype": "float64",
+        "nunique": 25
+    },
+    {
+        "column": "FIN Flag Count",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "SYN Flag Count",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "RST Flag Count",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "PSH Flag Count",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "ACK Flag Count",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "URG Flag Count",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "CWE Flag Count",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "ECE Flag Count",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Down/Up Ratio",
+        "dtype": "int64",
+        "nunique": 3
+    },
+    {
+        "column": "Average Packet Size",
+        "dtype": "float64",
+        "nunique": 28
+    },
+    {
+        "column": "Avg Fwd Segment Size",
+        "dtype": "float64",
+        "nunique": 22
+    },
+    {
+        "column": "Avg Bwd Segment Size",
+        "dtype": "float64",
+        "nunique": 18
+    },
+    {
+        "column": "Fwd Header Length.1",
+        "dtype": "int64",
+        "nunique": 17
+    },
+    {
+        "column": "Fwd Avg Bytes/Bulk",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Fwd Avg Packets/Bulk",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Fwd Avg Bulk Rate",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Bwd Avg Bytes/Bulk",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Bwd Avg Packets/Bulk",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Bwd Avg Bulk Rate",
+        "dtype": "int64",
+        "nunique": 1
+    },
+    {
+        "column": "Subflow Fwd Packets",
+        "dtype": "int64",
+        "nunique": 11
+    },
+    {
+        "column": "Subflow Fwd Bytes",
+        "dtype": "int64",
+        "nunique": 24
+    },
+    {
+        "column": "Subflow Bwd Packets",
+        "dtype": "int64",
+        "nunique": 9
+    },
+    {
+        "column": "Subflow Bwd Bytes",
+        "dtype": "int64",
+        "nunique": 19
+    },
+    {
+        "column": "Init_Win_bytes_forward",
+        "dtype": "int64",
+        "nunique": 44
+    },
+    {
+        "column": "Init_Win_bytes_backward",
+        "dtype": "int64",
+        "nunique": 26
+    },
+    {
+        "column": "act_data_pkt_fwd",
+        "dtype": "int64",
+        "nunique": 10
+    },
+    {
+        "column": "min_seg_size_forward",
+        "dtype": "int64",
+        "nunique": 3
+    },
+    {
+        "column": "Active Mean",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Active Std",
+        "dtype": "float64",
+        "nunique": 2
+    },
+    {
+        "column": "Active Max",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Active Min",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Idle Mean",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Idle Std",
+        "dtype": "int64",
+        "nunique": 2
+    },
+    {
+        "column": "Idle Max",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Idle Min",
+        "dtype": "int64",
+        "nunique": 4
+    },
+    {
+        "column": "Label",
+        "dtype": "str",
+        "nunique": 1
+    }
+]
