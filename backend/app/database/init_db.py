@@ -7,7 +7,7 @@ import logging
 
 from app.database.session import Base, engine, AsyncSessionLocal
 import app.models  # noqa: F401 - Ensure tables are registered
-from app.database.seed import seed_if_empty
+from app.database.seed import seed_experiments_if_empty, seed_if_empty
 
 logger = logging.getLogger(__name__)
 
@@ -20,5 +20,7 @@ async def init_db() -> None:
     
     async with AsyncSessionLocal() as session:
         await seed_if_empty(session)
+        await seed_experiments_if_empty(session)
         
     logger.info("Database ready.")
+

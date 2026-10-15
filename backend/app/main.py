@@ -48,8 +48,9 @@ app = FastAPI(
         "Currently serving structured demo data. Real Flower FL and PyTorch ML "
         "integration will be added in later phases."
     ),
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None,
     lifespan=lifespan,
 )
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +20,7 @@ from app.models.privacy_event import PrivacyEvent
 from app.models.threat_detection import ThreatDetection
 from app.models.training_round import TrainingRound
 from app.models.validation_test import ValidationTest
+from app.repositories.metric_repo import MetricRepo
 from app.repositories.organization_repo import OrganizationRepo
 
 logger = logging.getLogger(__name__)
@@ -523,3 +526,308 @@ async def _seed_validation_tests(db: AsyncSession) -> None:
     for t in tests:
         db.add(t)
     await db.flush()
+
+
+# ── Real CICIDS2017 Experiment Results ─────────────────────────
+
+_CLASS_NAMES = ["Normal", "DoS", "Brute Force", "Port Scan", "Malware"]
+
+
+async def seed_experiments_if_empty(db: AsyncSession) -> None:
+    """Insert real CICIDS2017 experiment data from experiment_results.json if missing.
+
+    Idempotent: exits immediately if experiment_metadata records already exist.
+    Never overwrites or deletes existing experiment records.
+    """
+    repo = MetricRepo(db)
+    if await repo.get_latest_experiment_id() is not None:
+        logger.info("Experiment metadata already present — skipping experiment seed.")
+        return
+
+    json_path = Path(__file__).resolve().parent.parent.parent / "experiment_results.json"
+    if not json_path.is_file():
+        logger.warning("experiment_results.json not found at %s — skipping experiment seed.", json_path)
+        return
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        logger.error("Failed to read %s: %s", json_path, exc)
+        return
+
+    experiment_id = data.get("experiment_id")
+    if not experiment_id:
+        logger.warning("experiment_results.json missing experiment_id.")
+        return
+
+    iid_result = data.get("iid", {})
+    noniid_result = data.get("non_iid", {})
+
+    logger.info("Seeding database with CICIDS2017 experiment %s …", experiment_id)
+    rows: list[Metric] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    args_dict = {
+        "alpha": float(noniid_result.get("alpha", 0.5)),
+        "rounds": int(iid_result.get("num_rounds", 20)),
+        "num_clients": int(iid_result.get("num_clients", 3)),
+        "samples": float(
+            sum(p.get("total_samples", 0) for p in iid_result.get("partition_stats", []))
+        ),
+        "seed": 42.0,
+        "epochs": int(iid_result.get("local_epochs", 3)),
+    }
+
+    # 0. Experiment metadata
+    for key, value in [
+        ("experiment_id", 0.0),
+        ("dataset_name", 0.0),
+        ("dirichlet_alpha", args_dict["alpha"]),
+        ("number_of_rounds", float(args_dict["rounds"])),
+        ("number_of_clients", float(args_dict["num_clients"])),
+        ("total_samples", args_dict["samples"]),
+        ("random_seed", args_dict["seed"]),
+        ("local_epochs", float(args_dict["epochs"])),
+    ]:
+        rows.append(Metric(
+            timestamp=now,
+            metric_name=key,
+            metric_value=value,
+            model_type=experiment_id,
+            category="experiment_metadata",
+        ))
+
+    rows.append(Metric(
+        timestamp=now,
+        metric_name="dataset",
+        metric_value=0.0,
+        model_type=f"{experiment_id}__cicids2017",
+        category="experiment_metadata",
+    ))
+
+    # 1. Summary comparison
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        g = exp.get("final_global", {})
+        ts = exp.get("timestamp", now)
+        for metric_name, value in [
+            ("accuracy", g.get("accuracy", 0.0)),
+            ("precision", g.get("precision", 0.0)),
+            ("recall", g.get("recall", 0.0)),
+            ("f1", g.get("f1", 0.0)),
+            ("weighted_f1", g.get("weighted_f1", g.get("f1", 0.0))),
+            ("false_positive_rate", g.get("false_positive_rate", 0.0)),
+            ("loss", g.get("loss", 0.0)),
+        ]:
+            rows.append(Metric(
+                timestamp=ts,
+                metric_name=metric_name,
+                metric_value=float(value),
+                model_type=tag,
+                category="experiment_summary",
+            ))
+
+    # 2. Per-round metrics
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        ts = exp.get("timestamp", now)
+        for rd in exp.get("round_metrics", []):
+            glob = rd.get("global", {})
+            for metric_name, value in [
+                ("federated_accuracy", glob.get("accuracy", 0.0)),
+                ("federated_f1", glob.get("f1", 0.0)),
+                ("local_avg_accuracy", rd.get("local_avg_accuracy", 0.0)),
+                ("local_avg_f1", rd.get("local_avg_f1", 0.0)),
+                ("federated_fpr", glob.get("false_positive_rate", 0.0)),
+            ]:
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=metric_name,
+                    metric_value=float(value),
+                    model_type=tag,
+                    round_number=int(rd.get("round", 0)),
+                    category="experiment_round",
+                ))
+
+    # 3. Per-org metrics (federated vs local-only)
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        ts = exp.get("timestamp", now)
+        f_orgs = exp.get("final_org_metrics", [])
+        l_orgs = exp.get("local_only_metrics", [])
+        for org_fed, org_local in zip(f_orgs, l_orgs):
+            oid = org_fed.get("org_id")
+            f_m = org_fed.get("metrics", {})
+            l_m = org_local.get("metrics", {})
+            for metric_name, fed_val, local_val in [
+                ("accuracy", f_m.get("accuracy", 0.0), l_m.get("accuracy", 0.0)),
+                ("f1", f_m.get("f1", 0.0), l_m.get("f1", 0.0)),
+                ("precision", f_m.get("precision", 0.0), l_m.get("precision", 0.0)),
+                ("recall", f_m.get("recall", 0.0), l_m.get("recall", 0.0)),
+            ]:
+                fed_val_f = float(fed_val)
+                local_val_f = float(local_val)
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=f"{metric_name}__federated",
+                    metric_value=fed_val_f,
+                    model_type=tag,
+                    org_id=oid,
+                    category="experiment_org",
+                ))
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=f"{metric_name}__local",
+                    metric_value=local_val_f,
+                    model_type=tag,
+                    org_id=oid,
+                    category="experiment_org",
+                ))
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=f"{metric_name}__gain",
+                    metric_value=round(fed_val_f - local_val_f, 2),
+                    model_type=tag,
+                    org_id=oid,
+                    category="experiment_org",
+                ))
+
+    # 4. Non-IID scenario rows
+    alpha_val_iid = 100.0
+    alpha_val_noniid = args_dict["alpha"]
+    for alpha_v, label_suffix, exp in [
+        (alpha_val_iid, "IID", iid_result),
+        (alpha_val_noniid, f"Non-IID (alpha={alpha_val_noniid})", noniid_result),
+    ]:
+        if not exp:
+            continue
+        tag = f"{experiment_id}__{label_suffix}"
+        g = exp.get("final_global", {})
+        ts = exp.get("timestamp", now)
+        l_orgs = exp.get("local_only_metrics", [])
+        local_accs = [float(o.get("metrics", {}).get("accuracy", 0.0)) for o in l_orgs]
+        local_avg = round(sum(local_accs) / len(local_accs), 2) if local_accs else 0.0
+        fed_acc = float(g.get("accuracy", 0.0))
+        robustness = min(100, int(fed_acc / max(local_avg, 1) * 100))
+        rows.append(Metric(
+            timestamp=ts,
+            metric_name="noniid_scenario",
+            metric_value=float(alpha_v),
+            model_type=tag,
+            category="experiment_noniid",
+        ))
+        for mn, mv in [
+            ("local_avg_accuracy", local_avg),
+            ("federated_accuracy", fed_acc),
+            ("robustness_score", float(robustness)),
+        ]:
+            rows.append(Metric(
+                timestamp=ts,
+                metric_name=mn,
+                metric_value=float(mv),
+                model_type=tag,
+                category="experiment_noniid",
+            ))
+
+    # 5. Partition stats
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        ts = exp.get("timestamp", now)
+        for ps in exp.get("partition_stats", []):
+            rows.append(Metric(
+                timestamp=ts,
+                metric_name="partition_info",
+                metric_value=float(ps.get("total_samples", 0)),
+                model_type=tag,
+                org_id=ps.get("org_id"),
+                category="experiment_partition",
+            ))
+            for cls_name, count in ps.get("class_distribution", {}).items():
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=f"class__{cls_name}",
+                    metric_value=float(count),
+                    model_type=tag,
+                    org_id=ps.get("org_id"),
+                    category="experiment_partition",
+                ))
+
+    # 6. Confusion matrices
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        ts = exp.get("timestamp", now)
+        cm = exp.get("confusion_matrix", [])
+        if cm:
+            for i, actual in enumerate(_CLASS_NAMES):
+                for j, predicted in enumerate(_CLASS_NAMES):
+                    rows.append(Metric(
+                        timestamp=ts,
+                        metric_name=f"{actual}__{predicted}",
+                        metric_value=float(cm[i][j]),
+                        model_type=tag,
+                        category="confusion_matrix",
+                    ))
+
+    # 7. Privacy events summary
+    for exp in [iid_result, noniid_result]:
+        if not exp:
+            continue
+        mode = exp.get("mode", "iid")
+        tag = f"{experiment_id}__{mode}"
+        ts = exp.get("timestamp", now)
+        privacy_data = exp.get("privacy", {})
+        privacy_events = privacy_data.get("events", [])
+        privacy_config_dict = privacy_data.get("config", {})
+
+        stage_counts: dict[str, int] = {}
+        for pe in privacy_events:
+            stage = pe.get("stage", "unknown")
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+        for stage, count in stage_counts.items():
+            rows.append(Metric(
+                timestamp=ts,
+                metric_name=stage,
+                metric_value=float(count),
+                model_type=tag,
+                category="privacy_event",
+            ))
+
+        rejected = privacy_data.get("updates_rejected", 0)
+        rows.append(Metric(
+            timestamp=ts,
+            metric_name="rejected",
+            metric_value=float(rejected),
+            model_type=tag,
+            category="privacy_event",
+        ))
+
+        for cfg_key, cfg_val in privacy_config_dict.items():
+            if isinstance(cfg_val, (int, float)):
+                rows.append(Metric(
+                    timestamp=ts,
+                    metric_name=f"config__{cfg_key}",
+                    metric_value=float(cfg_val),
+                    model_type=tag,
+                    category="privacy_event",
+                ))
+
+    db.add_all(rows)
+    await db.commit()
+    logger.info("Successfully seeded %d experiment metric rows (experiment_id=%s).", len(rows), experiment_id)
