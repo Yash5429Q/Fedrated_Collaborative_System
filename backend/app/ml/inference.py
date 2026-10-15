@@ -25,6 +25,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+# Limit PyTorch CPU threads for low-memory hosting compatibility
+if hasattr(torch, "set_num_threads"):
+    try:
+        torch.set_num_threads(1)
+    except Exception:
+        pass
+
 from app.ml.data import CLASS_NAMES, NUM_CLASSES, NUM_FEATURES
 from app.ml.model import ThreatNet
 

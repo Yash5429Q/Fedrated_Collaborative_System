@@ -48,11 +48,11 @@ _SYNTHETIC_FEATURE_NAMES = [
 _NPZ_PATH = os.path.join(os.path.dirname(__file__), "cicids2017_clean.npz")
 if os.path.exists(_NPZ_PATH):
     try:
-        _tmp = np.load(_NPZ_PATH, allow_pickle=True)
-        if 'feature_names' in _tmp:
-            FEATURE_NAMES = _tmp['feature_names'].tolist()
-        else:
-            FEATURE_NAMES = [f"Feature_{i}" for i in range(_tmp['X'].shape[1])]
+        with np.load(_NPZ_PATH, allow_pickle=True) as _tmp:
+            if 'feature_names' in _tmp:
+                FEATURE_NAMES = _tmp['feature_names'].tolist()
+            else:
+                FEATURE_NAMES = [f"Feature_{i}" for i in range(_tmp['X'].shape[1])]
     except Exception:
         FEATURE_NAMES = _SYNTHETIC_FEATURE_NAMES
 else:
