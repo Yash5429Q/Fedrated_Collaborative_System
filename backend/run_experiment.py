@@ -63,6 +63,7 @@ from app.ml.model import (
     get_learnable_mask,
     set_parameters,
     test_model_detailed,
+    select_attack_threshold,
     train_model,
 )
 
@@ -144,6 +145,7 @@ def run_experiment(
     norm_guard_multiplier: float = 0.0,
     proximal_mu: float = 0.0,
     splits: dict | None = None,
+    tune_attack_threshold: bool = False,
 ) -> tuple:
     """
     Run one federated learning experiment (IID or Non-IID).
@@ -336,7 +338,14 @@ def run_experiment(
         logger.info(f"  Restored best model from round {best_round} (macro-F1={best_val_f1*100:.2f}%)")
 
     # The final test set is not used to choose rounds or the deployment mode.
-    final_global = test_model_detailed(global_model, test_loader)
+    decision_rule = select_attack_threshold(global_model, val_loader) if tune_attack_threshold else None
+    attack_threshold = decision_rule["attack_threshold"] if decision_rule else None
+    if decision_rule:
+        logger.info("  Validation-selected attack threshold: %s", attack_threshold)
+        logger.info("  Validation binary FPR: %.4f%% -> %.4f%%; detection: %.4f%% -> %.4f%%",
+                    decision_rule["baseline"]["binary_false_positive_rate"], decision_rule["selected"]["binary_false_positive_rate"],
+                    decision_rule["baseline"]["binary_attack_detection_rate"], decision_rule["selected"]["binary_attack_detection_rate"])
+    final_global = test_model_detailed(global_model, test_loader, attack_threshold=attack_threshold)
     final_org_metrics = [
         {"org_id": stats.org_id, "org_name": stats.org_name,
          "metrics": final_global.to_dict(), "evaluation_split": "common_test"}
@@ -388,6 +397,8 @@ def run_experiment(
         "proximal_mu": proximal_mu,
         "evaluation_protocol": "common_held_out_v1",
         "preprocessing": splits.get("preprocessing"),
+        "decision_rule": decision_rule,
+        "local_only_decision_rule": "argmax",
         "split_seed": seed,
         "split_counts": {k: len(splits["y_" + k]) for k in ("train", "val", "test")},
         "round_evaluation_split": "validation",
@@ -480,6 +491,7 @@ async def _save_experiment_results(
                 ("weighted_f1", g.get("weighted_f1", g["f1"])),
                 ("false_positive_rate", g["false_positive_rate"]),
                 ("loss", g["loss"]),
+                *((key, g[key]) for key in ("binary_attack_detection_rate", "binary_false_positive_rate", "binary_tp", "binary_tn", "binary_fp", "binary_fn") if g.get(key) is not None),
             ]:
                 rows.append(Metric(
                     timestamp=exp["timestamp"],
@@ -737,6 +749,7 @@ def _save_checkpoint(
         "best_validation_f1": result.get("best_validation_f1"),
         "normalization_method": "robust_zscore_v1" if result.get("preprocessing") else "zscore",
         "preprocessing": result.get("preprocessing"),
+        "decision_rule": ({"version": "attack_gate_v1", "attack_threshold": result["decision_rule"]["attack_threshold"]} if result.get("decision_rule") else None),
         "normalization_artifact": "normalization.npz",
         "normalization_scope": "training_only",
         "normalization_note": "Mean/std fitted ONLY on training split, not on test/val data",
@@ -782,6 +795,7 @@ def main() -> None:
     parser.add_argument("--norm-guard", type=float, default=0.0, dest="norm_guard",
                         help="Norm guard multiplier: cap client updates whose norm exceeds median*multiplier (0=off, suggested: 3.0)")
     parser.add_argument("--proximal-mu", type=float, default=0.0)
+    parser.add_argument("--tune-attack-threshold", action="store_true", help="Select optional attack gate on validation only")
     parser.add_argument("--no-publish", action="store_true", help="Save separate JSON only; do not change latest checkpoint or database")
     parser.set_defaults(class_weights=True, enable_clipping=True, enable_dp_noise=True, enable_validation=True)
     args = parser.parse_args()
@@ -833,6 +847,7 @@ def main() -> None:
         norm_guard_multiplier=args.norm_guard,
         proximal_mu=args.proximal_mu,
         splits=splits,
+        tune_attack_threshold=args.tune_attack_threshold,
     )
 
     # Run Non-IID experiment
@@ -851,6 +866,7 @@ def main() -> None:
         norm_guard_multiplier=args.norm_guard,
         proximal_mu=args.proximal_mu,
         splits=splits,
+        tune_attack_threshold=args.tune_attack_threshold,
     )
 
     # Select deployment model using validation macro-F1, never test metrics
@@ -902,6 +918,9 @@ def main() -> None:
         sign = "+" if delta >= 0 else ""
         print(f"{m:<25} {iv:>9.2f}% {nv:>9.2f}% {sign}{delta:>8.2f}%")
     print("=" * 70)
+
+    for label, g in [("IID", ig), ("Non-IID", ng)]:
+        print(f"{label} binary detection: {g['binary_attack_detection_rate']}%; binary FPR: {g['binary_false_positive_rate']}%; missed: {g['binary_fn']}; false alarms: {g['binary_fp']}")
 
     # Per-class breakdown
     print("\nPER-CLASS BREAKDOWN (IID):")

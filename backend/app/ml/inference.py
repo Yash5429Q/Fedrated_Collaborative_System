@@ -34,7 +34,7 @@ if hasattr(torch, "set_num_threads"):
         pass
 
 from app.ml.data import CLASS_NAMES, NUM_CLASSES, NUM_FEATURES, FEATURE_NAMES
-from app.ml.model import ThreatNet
+from app.ml.model import ThreatNet, predict_classes, validate_attack_threshold
 from app.ml.data import apply_robust_preprocessing, validate_preprocessing
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,12 @@ class _InferenceModel:
                 if meta_file.exists():
                     with open(meta_file) as f:
                         meta = json.load(f)
+
+                rule = meta.get("decision_rule")
+                if rule is not None:
+                    if not isinstance(rule, dict) or rule.get("version") != "attack_gate_v1" or "attack_threshold" not in rule:
+                        raise ValueError("Invalid checkpoint decision rule")
+                    validate_attack_threshold(rule["attack_threshold"])
 
                 # Verify dimensions
                 stored_features = meta.get("input_features", NUM_FEATURES)
@@ -297,7 +303,9 @@ def predict(features: List[float]) -> dict:
         if not torch.isfinite(probs).all().item():
             raise RuntimeError("Model produced invalid probabilities")
 
-    class_id = int(probs.argmax().item())
+    rule = (inf.metadata or {}).get("decision_rule")
+    threshold = rule["attack_threshold"] if rule else None
+    class_id = int(predict_classes(logits, threshold).item())
     confidence = float(probs[class_id].item())
 
     probabilities = {
@@ -312,6 +320,9 @@ def predict(features: List[float]) -> dict:
             "confidence": round(confidence, 6),
         },
         "probabilities": probabilities,
+        "attack_score": round(float(probs[1:].sum().item()), 6),
+        "attack_threshold": threshold,
+        "decision_rule": "attack_gate_v1" if threshold is not None else "argmax",
         "latency_ms": round((time.perf_counter() - started) * 1000, 3),
         "model": {
             "name": "ThreatNet",

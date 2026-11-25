@@ -129,6 +129,7 @@ class DetailedMetrics:
             "false_positive_rate": round(self.false_positive_rate * 100, 2),
             "per_class": self.per_class,
             "num_samples": self.num_samples,
+            **binary_detection_metrics(self.confusion_matrix),
         }
 
 
@@ -211,10 +212,89 @@ def test_model(
     return metrics.loss, metrics.accuracy, metrics.f1, metrics.num_samples
 
 
+def binary_detection_metrics(confusion_matrix) -> dict:
+    """Rates in percent; Normal is class zero, all other classes are attacks."""
+    cm = np.asarray(confusion_matrix, dtype=np.int64)
+    if cm.shape != (NUM_CLASSES, NUM_CLASSES):
+        return {}
+    tn = int(cm[0, 0])
+    fp = int(cm[0, 1:].sum())
+    fn = int(cm[1:, 0].sum())
+    tp = int(cm[1:, 1:].sum())
+    return {
+        "binary_attack_detection_rate": round(100 * tp / (tp + fn), 6) if tp + fn else None,
+        "binary_false_positive_rate": round(100 * fp / (tn + fp), 6) if tn + fp else None,
+        "binary_tp": tp, "binary_tn": tn, "binary_fp": fp, "binary_fn": fn,
+    }
+
+
+def validate_attack_threshold(threshold):
+    if threshold is None:
+        return None
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not np.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError("Attack threshold must be null or a finite number in [0, 1]")
+    return float(threshold)
+
+
+def predict_classes(logits: torch.Tensor, attack_threshold=None) -> torch.Tensor:
+    """Legacy argmax, optionally suppress low-score attack predictions."""
+    threshold = validate_attack_threshold(attack_threshold)
+    if logits.ndim != 2 or logits.shape[1] != NUM_CLASSES or not torch.isfinite(logits).all():
+        raise ValueError("Invalid classification logits")
+    predicted = logits.argmax(dim=1)
+    if threshold is not None:
+        attack_score = torch.softmax(logits, dim=1)[:, 1:].sum(dim=1)
+        predicted = torch.where(attack_score >= threshold, predicted, torch.zeros_like(predicted))
+    return predicted
+
+
+def select_attack_threshold(model: nn.Module, val_loader: DataLoader) -> dict:
+    """Select on validation only; keep argmax if no feasible improvement.
+
+    Fixed grid; allow at most 0.5 percentage points binary detection loss
+    and 1 point recall loss in each attack class relative to argmax.
+    Neither binary nor macro FPR may increase on validation.
+    """
+    model.to(DEVICE)
+    model.eval()
+    logits, labels = [], []
+    with torch.no_grad():
+        for x, y in val_loader:
+            logits.append(model(x.to(DEVICE)).cpu())
+            labels.append(y.cpu().numpy())
+    if not logits:
+        raise ValueError("Empty validation set")
+    logits = torch.cat(logits)
+    labels = np.concatenate(labels)
+    if set(np.unique(labels)) != set(range(NUM_CLASSES)):
+        raise ValueError("Threshold selection requires all classes in validation")
+    def evaluate(t):
+        pred = predict_classes(logits, t).numpy()
+        cm = np.bincount(labels * NUM_CLASSES + pred, minlength=NUM_CLASSES ** 2).reshape(NUM_CLASSES, NUM_CLASSES)
+        support = cm.sum(axis=1)
+        recall = 100 * np.diag(cm) / support
+        macro_fpr = float(np.mean((cm.sum(axis=0) - np.diag(cm)) / (cm.sum() - support)) * 100)
+        return {"threshold": t, **binary_detection_metrics(cm), "macro_fpr": macro_fpr,
+                "attack_class_recall": recall[1:].tolist(), "accuracy": float(np.trace(cm) / cm.sum() * 100)}
+    baseline = evaluate(None)
+    candidates = [baseline] + [evaluate(i / 100) for i in range(50, 100)]
+    feasible = [c for c in candidates if
+        c["binary_attack_detection_rate"] >= baseline["binary_attack_detection_rate"] - 0.5 - 1e-9
+        and c["binary_false_positive_rate"] <= baseline["binary_false_positive_rate"] + 1e-9
+        and c["macro_fpr"] <= baseline["macro_fpr"] + 1e-9
+        and all(a >= b - 1.0 - 1e-9 for a, b in zip(c["attack_class_recall"], baseline["attack_class_recall"]))]
+    best = min(feasible, key=lambda c: (c["binary_false_positive_rate"], c["macro_fpr"], -c["binary_attack_detection_rate"], -c["accuracy"], c["threshold"] is not None))
+    return {"version": "attack_gate_v1", "selection_split": "validation",
+            "attack_threshold": best["threshold"], "baseline": baseline, "selected": best,
+            "max_detection_drop_pp": 0.5, "max_attack_class_recall_drop_pp": 1.0,
+            "candidates": candidates}
+
+
 def test_model_detailed(
     model: nn.Module,
     test_loader: DataLoader,
     class_weights: Optional[np.ndarray] = None,
+    attack_threshold: Optional[float] = None,
 ) -> DetailedMetrics:
     """
     Full evaluation with per-class metrics, confusion matrix, and FPR.
@@ -241,7 +321,7 @@ def test_model_detailed(
             total_loss += loss.item() * len(X_batch)
             total_samples += len(X_batch)
 
-            preds = outputs.argmax(dim=1)
+            preds = predict_classes(outputs, attack_threshold)
             all_preds.append(preds.cpu().numpy())
             all_labels.append(y_batch.cpu().numpy())
 
