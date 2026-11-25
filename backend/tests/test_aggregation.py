@@ -275,19 +275,19 @@ class TestDPAccountingDisclaimer:
         config = PrivacyConfig()
         d = config.to_dict()
         assert "dp_accounting" in d
-        assert d["dp_accounting"] == "per_round_gaussian_only"
+        assert d["dp_accounting"] == "not_established"
 
     def test_dp_accounting_note_present(self):
         """to_dict() should include dp_accounting_note field."""
         config = PrivacyConfig()
         d = config.to_dict()
         assert "dp_accounting_note" in d
-        assert "per-round" in d["dp_accounting_note"].lower()
+        assert "no formal dp guarantee" in d["dp_accounting_note"].lower()
         assert "composition" in d["dp_accounting_note"].lower()
 
     def test_epsilon_per_round_in_dict(self):
         """to_dict() should include epsilon_per_round."""
         config = PrivacyConfig(clip_norm=1.0, noise_multiplier=1.0)
         d = config.to_dict()
-        expected_eps = math.sqrt(2.0 * math.log(1.25 / 1e-5))
-        assert abs(d["epsilon_per_round"] - round(expected_eps, 4)) < 1e-3
+        assert "epsilon_per_round" in d
+        assert d["epsilon_per_round"] is None

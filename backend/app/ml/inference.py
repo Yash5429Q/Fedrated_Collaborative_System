@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -32,7 +33,7 @@ if hasattr(torch, "set_num_threads"):
     except Exception:
         pass
 
-from app.ml.data import CLASS_NAMES, NUM_CLASSES, NUM_FEATURES
+from app.ml.data import CLASS_NAMES, NUM_CLASSES, NUM_FEATURES, FEATURE_NAMES
 from app.ml.model import ThreatNet
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,8 @@ class _InferenceModel:
                 state_dict = torch.load(model_file, map_location="cpu", weights_only=True)
                 model.load_state_dict(state_dict, strict=True)
                 model.eval()
+                if not all(torch.isfinite(t).all().item() for t in model.state_dict().values()):
+                    raise ValueError("Checkpoint contains non-finite model values")
 
                 # Load normalization parameters
                 norm_mean = None
@@ -127,30 +130,20 @@ class _InferenceModel:
                 has_norm = False
 
                 if norm_file.exists():
-                    norm_data = np.load(norm_file, allow_pickle=True)
-                    nm = norm_data["mean"]
-                    ns = norm_data["std"]
-
-                    # Validate shapes
-                    if nm.shape != (NUM_FEATURES,):
-                        self.load_error = (
-                            f"Normalization mean has shape {nm.shape}, "
-                            f"expected ({NUM_FEATURES},)"
-                        )
-                        logger.error(self.load_error)
-                        continue
-                    if ns.shape != (NUM_FEATURES,):
-                        self.load_error = (
-                            f"Normalization std has shape {ns.shape}, "
-                            f"expected ({NUM_FEATURES},)"
-                        )
-                        logger.error(self.load_error)
-                        continue
-
-                    norm_mean = nm.astype(np.float32)
-                    norm_std = ns.astype(np.float32)
-                    if "feature_names" in norm_data:
-                        norm_feature_names = norm_data["feature_names"].tolist()
+                    with np.load(norm_file, allow_pickle=True) as norm_data:
+                        nm = norm_data["mean"].astype(np.float32)
+                        ns = norm_data["std"].astype(np.float32)
+                        if "feature_names" in norm_data:
+                            norm_feature_names = norm_data["feature_names"].tolist()
+                    if nm.shape != (NUM_FEATURES,) or ns.shape != (NUM_FEATURES,):
+                        raise ValueError("Normalization mean/std shape mismatch")
+                    if not np.isfinite(nm).all() or not np.isfinite(ns).all() or np.any(ns <= 0):
+                        raise ValueError("Normalization requires finite mean and positive finite std")
+                    if norm_feature_names != list(FEATURE_NAMES):
+                        raise ValueError("Normalization feature order does not match dataset schema")
+                    if "feature_order" in meta and meta["feature_order"] != list(FEATURE_NAMES):
+                        raise ValueError("Checkpoint metadata feature order mismatch")
+                    norm_mean, norm_std = nm, ns
                     has_norm = True
                     logger.info(
                         "Loaded normalization params from %s "
@@ -162,8 +155,8 @@ class _InferenceModel:
                 else:
                     logger.warning(
                         "No normalization.npz found in %s — "
-                        "inference will feed RAW features to model "
-                        "(predictions may be meaningless)",
+                        "prediction will be disabled "
+                        "(normalization required)",
                         cdir,
                     )
 
@@ -232,12 +225,16 @@ def validate_features(features: list) -> str | None:
     if len(features) != NUM_FEATURES:
         return f"Expected {NUM_FEATURES} features, got {len(features)}"
     for i, v in enumerate(features):
-        if not isinstance(v, (int, float)):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
             return f"Feature at index {i} is not a number: {type(v).__name__}"
+        if isinstance(v, int) and abs(v) > float(np.finfo(np.float32).max):
+            return f"Feature at index {i} exceeds finite float32 range"
         if math.isnan(v):
             return f"Feature at index {i} is NaN"
         if math.isinf(v):
             return f"Feature at index {i} is Inf"
+        if abs(v) > float(np.finfo(np.float32).max):
+            return f"Feature at index {i} exceeds finite float32 range"
     return None
 
 
@@ -256,6 +253,7 @@ def predict(features: List[float]) -> dict:
     Raises RuntimeError if the model is not loaded.
     Raises ValueError if input is invalid.
     """
+    started = time.perf_counter()
     inf = get_inference_model()
     if not inf.is_loaded or inf.model is None:
         raise RuntimeError(
@@ -269,22 +267,22 @@ def predict(features: List[float]) -> dict:
 
     raw = np.array(features, dtype=np.float32)
 
-    # Apply normalization (critical: must match training preprocessing)
-    if inf.has_normalization and inf.norm_mean is not None and inf.norm_std is not None:
+    if not inf.has_normalization or inf.norm_mean is None or inf.norm_std is None:
+        raise RuntimeError("Prediction unavailable: checkpoint normalization is missing")
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         normalized = normalise_features(raw, inf.norm_mean, inf.norm_std)
-    else:
-        # No normalization available — use raw values and warn
-        logger.warning(
-            "Running inference WITHOUT normalization — "
-            "predictions are likely meaningless"
-        )
-        normalized = raw
+    if not np.isfinite(normalized).all():
+        raise ValueError("Input produces non-finite normalized features")
 
     tensor = torch.from_numpy(normalized).unsqueeze(0)
 
     with torch.no_grad():
         logits = inf.model(tensor)
+        if logits.shape != (1, NUM_CLASSES) or not torch.isfinite(logits).all().item():
+            raise RuntimeError("Model produced invalid logits")
         probs = F.softmax(logits, dim=1)[0]
+        if not torch.isfinite(probs).all().item():
+            raise RuntimeError("Model produced invalid probabilities")
 
     class_id = int(probs.argmax().item())
     confidence = float(probs[class_id].item())
@@ -301,6 +299,7 @@ def predict(features: List[float]) -> dict:
             "confidence": round(confidence, 6),
         },
         "probabilities": probabilities,
+        "latency_ms": round((time.perf_counter() - started) * 1000, 3),
         "model": {
             "name": "ThreatNet",
             "input_features": NUM_FEATURES,

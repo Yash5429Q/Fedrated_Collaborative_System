@@ -62,11 +62,11 @@ class PrivacyConfig:
 
     @property
     def noise_std(self) -> float:
-        return self.noise_multiplier * self.clip_norm
+        return self.noise_multiplier * self.clip_norm if self.enable_dp_noise else 0.0
 
     def epsilon(self, delta: float = 1e-5) -> float:
         """
-        Compute approximate per-round (epsilon, delta)-DP.
+        Legacy Gaussian formula diagnostic only; NOT a certified DP bound.
 
         Uses the Gaussian mechanism bound:
           epsilon = sqrt(2 * ln(1.25/delta)) * (sensitivity / noise_std)
@@ -77,7 +77,7 @@ class PrivacyConfig:
         For a formal privacy statement over T rounds, use a composition
         theorem or tools like Opacus / Google's dp-accounting library.
         """
-        if self.noise_std <= 0:
+        if not self.enable_clipping or self.noise_std <= 0:
             return float("inf")
         return math.sqrt(2.0 * math.log(1.25 / delta)) * (self.clip_norm / self.noise_std)
 
@@ -88,13 +88,14 @@ class PrivacyConfig:
             "dp_noise_enabled": self.enable_dp_noise,
             "noise_multiplier": self.noise_multiplier,
             "noise_std": round(self.noise_std, 6),
-            "epsilon_per_round": round(self.epsilon(), 4),
+            "epsilon_per_round": None,
+            "formal_dp_verified": False,
             "delta": 1e-5,
-            "dp_accounting": "per_round_gaussian_only",
+            "dp_accounting": "not_established",
             "dp_accounting_note": (
-                "Epsilon is computed per-round via the Gaussian mechanism. "
-                "No multi-round composition (advanced composition, RDP, zCDP) "
-                "is applied. For T rounds, a naive bound is T * epsilon."
+                "No formal DP guarantee: adjacency, randomness, all released buffers and "
+                "logs, and multi-round composition have not been established. "
+                "Seeded noise is for simulation only."
             ),
             "validation_enabled": self.enable_validation,
             "max_update_norm": self.max_update_norm,
@@ -254,10 +255,10 @@ def add_dp_noise(
 
     privacy_logger.log(
         "noise_addition", org_id, round_number,
-        f"Adding Gaussian noise (std={noise_std:.6f}, epsilon={config.epsilon():.4f})",
+        f"Adding experimental Gaussian noise (std={noise_std:.6f})",
         noise_std=round(noise_std, 6),
-        epsilon=round(config.epsilon(), 4),
-        delta=1e-5,
+        formal_dp_verified=False,
+        deterministic_noise=seed is not None,
     )
 
     noised = []
@@ -367,11 +368,20 @@ def validate_update(
         reasons.append(f"Layer count mismatch: got {len(update_params)}, expected {len(reference_params)}")
     else:
         shapes_match = all(
-            u.shape == r.shape for u, r in zip(update_params, reference_params)
+            isinstance(u, (np.ndarray, np.generic)) and u.shape == r.shape and u.dtype.kind in "fiu"
+            for u, r in zip(update_params, reference_params)
         )
         checks["structure"] = shapes_match
         if not shapes_match:
             reasons.append("Layer shape mismatch detected")
+
+    if (not checks["structure"] or
+            (learnable_mask is not None and len(learnable_mask) != len(reference_params))):
+        checks["structure"] = False
+        reason = "; ".join(reasons) or "Invalid learnable mask length"
+        privacy_logger.log("validation", org_id, round_number,
+                           "Validation REJECTED: " + reason, valid=False, checks=checks)
+        return ValidationResult(False, org_id, round_number, checks, reason)
 
     # Check 2: No NaN/Inf
     has_nan = any(np.isnan(u).any() for u in update_params)
@@ -382,8 +392,14 @@ def validate_update(
     if has_inf:
         reasons.append("Update contains Inf values")
 
+    if not checks["finite_values"]:
+        reason = "; ".join(reasons)
+        privacy_logger.log("validation", org_id, round_number,
+                           "Validation REJECTED: " + reason, valid=False, checks=checks)
+        return ValidationResult(False, org_id, round_number, checks, reason)
+
     # Check 3: Update norm (only for learnable params, not BN buffers)
-    delta = [u - r for u, r in zip(update_params, reference_params)]
+    delta = [u.astype(np.float64) - r.astype(np.float64) for u, r in zip(update_params, reference_params)]
     norm = compute_update_norm(delta, mask=learnable_mask)
     checks["norm_bound"] = norm <= config.max_update_norm
     if not checks["norm_bound"]:
@@ -394,7 +410,7 @@ def validate_update(
         learnable_params = [u for u, m in zip(update_params, learnable_mask) if m]
     else:
         learnable_params = update_params
-    max_val = max(float(np.abs(u).max()) for u in learnable_params) if learnable_params else 0.0
+    max_val = max((float(np.abs(u.astype(np.float64)).max()) for u in learnable_params if u.size), default=0.0)
     checks["value_bound"] = max_val <= config.max_param_value
     if not checks["value_bound"]:
         reasons.append(f"Max parameter value {max_val:.4f} exceeds limit {config.max_param_value}")

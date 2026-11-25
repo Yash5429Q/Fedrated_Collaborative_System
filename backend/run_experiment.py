@@ -46,6 +46,9 @@ from app.ml.data import (
     FEATURE_NAMES,
     PartitionStats,
     create_splits,
+    create_benchmark_splits,
+    build_benchmark_partitions,
+    benchmark_eval_loader,
     load_all_partitions,
     load_global_test_set,
     compute_class_weights,
@@ -139,7 +142,9 @@ def run_experiment(
     global_class_weights: np.ndarray | None = None,
     momentum: float = 0.0,
     norm_guard_multiplier: float = 0.0,
-) -> dict:
+    proximal_mu: float = 0.0,
+    splits: dict | None = None,
+) -> tuple:
     """
     Run one federated learning experiment (IID or Non-IID).
 
@@ -160,56 +165,22 @@ def run_experiment(
     logger.info(f"  LR: {lr}, Weight decay: {weight_decay}, Class weights: {use_class_weights}")
     logger.info(f"  Privacy: clipping={privacy_config.enable_clipping} (norm={privacy_config.clip_norm}), "
                 f"dp_noise={privacy_config.enable_dp_noise} (sigma={privacy_config.noise_std:.4f}, "
-                f"eps={privacy_config.epsilon():.2f}), validation={privacy_config.enable_validation}")
+                f"formal_dp=not_established), validation={privacy_config.enable_validation}")
     logger.info(f"  Momentum: {momentum}, Norm guard multiplier: {norm_guard_multiplier}")
 
-    # Load data partitions
-    partitions = load_all_partitions(
-        num_partitions=num_clients,
-        n_samples=n_samples,
-        seed=seed,
-        iid=iid,
-        alpha=alpha,
-    )
-
-    # Compute global normalization from ALL training data across partitions
-    # for the global test set evaluation
-    if global_norm_mean is None or global_norm_std is None:
-        # Collect all raw training data to compute global norm params
-        all_train_X = []
-        for stats, train_ld, test_ld, norm_params in partitions:
-            for X_batch, _ in train_ld:
-                # Undo the per-partition normalization to get raw
-                raw = X_batch.numpy() * norm_params["std"] + norm_params["mean"]
-                all_train_X.append(raw)
-        all_train_X = np.vstack(all_train_X)
-        global_norm_mean = all_train_X.mean(axis=0).astype(np.float32)
-        global_norm_std = (all_train_X.std(axis=0) + 1e-8).astype(np.float32)
-
-    # Compute class weights from training labels
-    if global_class_weights is None and use_class_weights:
-        all_train_y = []
-        for stats, train_ld, _, _ in partitions:
-            for _, y_batch in train_ld:
-                all_train_y.append(y_batch.numpy())
-        all_train_y = np.concatenate(all_train_y)
-        global_class_weights = compute_class_weights(all_train_y)
-        logger.info(f"  Class weights: {dict(zip(CLASS_NAMES, global_class_weights.tolist()))}")
-
-    # Load global test set using training normalization
-    global_test_loader = load_global_test_set(
-        n_samples=0,
-        seed=99,
-        norm_mean=global_norm_mean,
-        norm_std=global_norm_std,
-    )
-
-    # Log partition stats
-    partition_stats = []
-    for stats, _, _, _ in partitions:
-        logger.info(f"  {stats.org_name}: {stats.total_samples} samples, "
-                     f"distribution: {stats.class_proportions}")
-        partition_stats.append(stats)
+    # Use one frozen split for both modes. Shared scaler is a simulation choice.
+    if splits is None:
+        splits = create_benchmark_splits(n_samples=n_samples, seed=seed)
+    global_norm_mean = splits["norm_mean"]
+    global_norm_std = splits["norm_std"]
+    global_class_weights = splits["class_weights"] if use_class_weights else None
+    partitions = build_benchmark_partitions(
+        splits, num_partitions=num_clients, seed=seed, iid=iid, alpha=alpha)
+    val_loader = benchmark_eval_loader(splits, "val")
+    test_loader = benchmark_eval_loader(splits, "test")
+    partition_stats = [stats for stats, _ in partitions]
+    for stats in partition_stats:
+        logger.info("  %s: %s training samples", stats.org_name, stats.train_samples)
 
     # Initialize global model
     torch.manual_seed(seed)
@@ -231,31 +202,18 @@ def run_experiment(
         global_params_snapshot = get_parameters(global_model)
         learnable_mask = get_learnable_mask(global_model)
 
-        for cid, (stats, train_ld, test_ld, norm_params) in enumerate(partitions):
+        for cid, (stats, train_ld) in enumerate(partitions):
+            client_start = time.perf_counter()
             # Clone global model for local training
             local_model = ThreatNet()
             set_parameters(local_model, get_parameters(global_model))
 
-            # Compute per-client class weights from this client's data
-            client_class_weights = None
-            if use_class_weights:
-                client_y = []
-                for _, y_batch in train_ld:
-                    client_y.append(y_batch.numpy())
-                client_y = np.concatenate(client_y)
-                client_class_weights = compute_class_weights(client_y)
-
-            # Local training
+            # Same class weights and preprocessing across clients and baselines.
             avg_loss, n_train = train_model(
-                local_model, train_ld,
-                epochs=local_epochs,
-                lr=lr,
-                weight_decay=weight_decay,
-                class_weights=client_class_weights,
-            )
-
-            # Local evaluation
-            local_metrics = test_model_detailed(local_model, test_ld)
+                local_model, train_ld, epochs=local_epochs, lr=lr,
+                weight_decay=weight_decay, class_weights=global_class_weights,
+                proximal_mu=proximal_mu)
+            local_metrics = test_model_detailed(local_model, val_loader)
 
             # === Privacy pipeline ===
             trained_params = get_parameters(local_model)
@@ -292,6 +250,9 @@ def run_experiment(
                 "train_loss": avg_loss,
                 "metrics": local_metrics.to_dict(),
                 "validation_passed": validation.valid,
+                "samples_used": n_train,
+                "duration_s": round(time.perf_counter() - client_start, 3),
+                "update_size_bytes": sum(p.nbytes for p in protected_params),
             })
 
         # ── Norm guard: flag / down-weight outlier updates ────
@@ -333,7 +294,7 @@ def run_experiment(
             logger.warning(f"  Round {rnd}: ALL updates rejected, skipping aggregation")
 
         # Global evaluation
-        global_eval = test_model_detailed(global_model, global_test_loader)
+        global_eval = test_model_detailed(global_model, val_loader)
         rnd_duration = time.time() - rnd_start
 
         # Track best model by global macro-F1
@@ -348,6 +309,9 @@ def run_experiment(
 
         round_data = {
             "round": rnd,
+            "evaluation_split": "validation",
+            "accepted_clients": len(client_params),
+            "attempted_clients": len(partitions),
             "global": global_eval.to_dict(),
             "local_avg_accuracy": round(np.mean(local_accs), 2),
             "local_avg_f1": round(np.mean(local_f1s), 2),
@@ -371,47 +335,41 @@ def run_experiment(
         global_model.load_state_dict(best_model_state)
         logger.info(f"  Restored best model from round {best_round} (macro-F1={best_val_f1*100:.2f}%)")
 
-    # Final per-org evaluation with global model
-    final_org_metrics = []
-    for stats, _, test_ld, _ in partitions:
-        org_eval = test_model_detailed(global_model, test_ld)
-        final_org_metrics.append({
-            "org_id": stats.org_id,
-            "org_name": stats.org_name,
-            "metrics": org_eval.to_dict(),
-        })
+    # The final test set is not used to choose rounds or the deployment mode.
+    final_global = test_model_detailed(global_model, test_loader)
+    final_org_metrics = [
+        {"org_id": stats.org_id, "org_name": stats.org_name,
+         "metrics": final_global.to_dict(), "evaluation_split": "common_test"}
+        for stats, _ in partitions]
 
-    # Also get local-only metrics (train each org independently, no federation)
+    # Standalone baselines: same starting seed, client data, optimizer restart
+    # schedule, class weights and number of local epochs. No aggregation.
     local_only_metrics = []
-    for stats, train_ld, test_ld, _ in partitions:
+    baseline_partitions = build_benchmark_partitions(
+        splits, num_partitions=num_clients, seed=seed, iid=iid, alpha=alpha)
+    for stats, train_ld in baseline_partitions:
         torch.manual_seed(seed)
         local_model = ThreatNet()
-
-        # Compute per-client class weights
-        client_class_weights = None
-        if use_class_weights:
-            client_y = []
-            for _, y_batch in train_ld:
-                client_y.append(y_batch.numpy())
-            client_y = np.concatenate(client_y)
-            client_class_weights = compute_class_weights(client_y)
-
-        train_model(
-            local_model, train_ld,
-            epochs=local_epochs * num_rounds,
-            lr=lr,
-            weight_decay=weight_decay,
-            class_weights=client_class_weights,
-        )
-        local_eval = test_model_detailed(local_model, test_ld)
+        best_local_f1 = -1.0
+        best_local_state = None
+        best_local_round = 0
+        for rnd in range(1, num_rounds + 1):
+            train_model(local_model, train_ld, epochs=local_epochs, lr=lr,
+                        weight_decay=weight_decay, class_weights=global_class_weights)
+            local_val = test_model_detailed(local_model, val_loader)
+            if local_val.f1 > best_local_f1:
+                best_local_f1 = local_val.f1
+                best_local_state = copy.deepcopy(local_model.state_dict())
+                best_local_round = rnd
+        local_model.load_state_dict(best_local_state)
+        local_eval = test_model_detailed(local_model, test_loader)
         local_only_metrics.append({
-            "org_id": stats.org_id,
-            "org_name": stats.org_name,
+            "org_id": stats.org_id, "org_name": stats.org_name,
             "metrics": local_eval.to_dict(),
+            "confusion_matrix": local_eval.confusion_matrix,
+            "best_round": best_local_round,
+            "evaluation_split": "common_test",
         })
-
-    # Final global eval
-    final_global = test_model_detailed(global_model, global_test_loader)
 
     # ── Save model checkpoint ──────────────────────────────────
     result = {
@@ -426,6 +384,13 @@ def run_experiment(
         "momentum": momentum,
         "norm_guard_multiplier": norm_guard_multiplier,
         "best_round": best_round,
+        "best_validation_f1": best_val_f1 * 100,
+        "proximal_mu": proximal_mu,
+        "evaluation_protocol": "common_held_out_v1",
+        "split_seed": seed,
+        "split_counts": {k: len(splits["y_" + k]) for k in ("train", "val", "test")},
+        "round_evaluation_split": "validation",
+        "final_evaluation_split": "common_test",
         "partition_stats": [s.to_dict() for s in partition_stats],
         "round_metrics": round_metrics,
         "final_global": final_global.to_dict(),
@@ -447,7 +412,7 @@ def run_experiment(
                 f"fpr={final_global.to_dict()['false_positive_rate']}%")
     logger.info(f"  Best model from round {best_round}")
     logger.info(f"  Privacy: {rejected_count} updates rejected, "
-                f"epsilon={privacy_config.epsilon():.2f} per round")
+                "formal DP guarantee not established")
 
     return result, global_model, global_norm_mean, global_norm_std
 
@@ -480,7 +445,7 @@ async def _save_experiment_results(
             ("dirichlet_alpha", args_dict.get("alpha", 0.5)),
             ("number_of_rounds", float(args_dict.get("rounds", 10))),
             ("number_of_clients", float(args_dict.get("num_clients", 3))),
-            ("total_samples", float(args_dict.get("samples", 0))),
+            ("total_samples", float(sum(iid_result["split_counts"].values()) if "split_counts" in iid_result else sum(p["total_samples"] for p in iid_result["partition_stats"]))),
             ("random_seed", float(args_dict.get("seed", 42))),
             ("local_epochs", float(args_dict.get("epochs", 3))),
         ]:
@@ -534,6 +499,8 @@ async def _save_experiment_results(
                     ("local_avg_accuracy", rd["local_avg_accuracy"]),
                     ("local_avg_f1", rd["local_avg_f1"]),
                     ("federated_fpr", rd["global"]["false_positive_rate"]),
+                    ("duration_s", rd["duration_s"]),
+                    *(([("accepted_clients", rd["accepted_clients"])] if "accepted_clients" in rd else [])),
                 ]:
                     rows.append(Metric(
                         timestamp=exp["timestamp"],
@@ -555,6 +522,7 @@ async def _save_experiment_results(
                     ("f1", org_fed["metrics"]["f1"], org_local["metrics"]["f1"]),
                     ("precision", org_fed["metrics"]["precision"], org_local["metrics"]["precision"]),
                     ("recall", org_fed["metrics"]["recall"], org_local["metrics"]["recall"]),
+                    ("false_positive_rate", org_fed["metrics"]["false_positive_rate"], org_local["metrics"]["false_positive_rate"]),
                 ]:
                     rows.append(Metric(
                         timestamp=exp["timestamp"],
@@ -761,6 +729,10 @@ def _save_checkpoint(
         "final_f1": result["final_global"]["f1"],
         "final_weighted_f1": result["final_global"].get("weighted_f1", result["final_global"]["f1"]),
         "final_loss": result["final_global"]["loss"],
+        "proximal_mu": result.get("proximal_mu", 0.0),
+        "evaluation_protocol": result.get("evaluation_protocol"),
+        "split_counts": result.get("split_counts"),
+        "best_validation_f1": result.get("best_validation_f1"),
         "normalization_method": "zscore",
         "normalization_artifact": "normalization.npz",
         "normalization_scope": "training_only",
@@ -806,9 +778,17 @@ def main() -> None:
                         help="Server-side momentum (EMA blending weight for previous global model, 0=off, suggested: 0.2)")
     parser.add_argument("--norm-guard", type=float, default=0.0, dest="norm_guard",
                         help="Norm guard multiplier: cap client updates whose norm exceeds median*multiplier (0=off, suggested: 3.0)")
+    parser.add_argument("--proximal-mu", type=float, default=0.0)
+    parser.add_argument("--no-publish", action="store_true", help="Save separate JSON only; do not change latest checkpoint or database")
     parser.set_defaults(class_weights=True, enable_clipping=True, enable_dp_noise=True, enable_validation=True)
     args = parser.parse_args()
 
+    if args.rounds < 1 or args.epochs < 1 or args.samples < 0 or not np.isfinite(args.proximal_mu) or args.proximal_mu < 0:
+        parser.error("Invalid rounds, epochs, samples or proximal-mu")
+    if not np.isfinite(args.alpha) or args.alpha <= 0:
+        parser.error("alpha must be positive")
+    if not 0 <= args.momentum < 1:
+        parser.error("momentum must be in [0, 1)")
     # Build privacy config from CLI flags
     privacy_config = PrivacyConfig(
         enable_clipping=args.enable_clipping,
@@ -832,6 +812,8 @@ def main() -> None:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
+    splits = create_benchmark_splits(n_samples=args.samples, seed=args.seed)
+
     # Run IID experiment
     iid_result, iid_model, iid_norm_mean, iid_norm_std = run_experiment(
         iid=True,
@@ -846,6 +828,8 @@ def main() -> None:
         privacy_config=privacy_config,
         momentum=args.momentum,
         norm_guard_multiplier=args.norm_guard,
+        proximal_mu=args.proximal_mu,
+        splits=splits,
     )
 
     # Run Non-IID experiment
@@ -862,40 +846,43 @@ def main() -> None:
         privacy_config=privacy_config,
         momentum=args.momentum,
         norm_guard_multiplier=args.norm_guard,
+        proximal_mu=args.proximal_mu,
+        splits=splits,
     )
 
-    # Select best model: compare IID vs Non-IID final macro-F1
-    iid_f1 = iid_result["final_global"]["f1"]
-    noniid_f1 = noniid_result["final_global"]["f1"]
+    # Select deployment model using validation macro-F1, never test metrics
+    iid_f1 = iid_result["best_validation_f1"]
+    noniid_f1 = noniid_result["best_validation_f1"]
     if iid_f1 >= noniid_f1:
         best_model = iid_model
         best_mode = "iid"
         best_result = iid_result
         best_norm_mean = iid_norm_mean
         best_norm_std = iid_norm_std
-        logger.info(f"Best model: IID (F1={iid_f1:.2f}%)")
+        logger.info(f"Best model: IID (validation F1={iid_f1:.2f}%)")
     else:
         best_model = noniid_model
         best_mode = "non_iid"
         best_result = noniid_result
         best_norm_mean = noniid_norm_mean
         best_norm_std = noniid_norm_std
-        logger.info(f"Best model: Non-IID (F1={noniid_f1:.2f}%)")
+        logger.info(f"Best model: Non-IID (validation F1={noniid_f1:.2f}%)")
 
-    # Save best checkpoint
-    _save_checkpoint(best_model, experiment_id, args, best_mode, best_result,
-                     best_norm_mean, best_norm_std)
+    if not args.no_publish:
+        # Save best checkpoint
+        _save_checkpoint(best_model, experiment_id, args, best_mode, best_result,
+                         best_norm_mean, best_norm_std)
 
-    # Also create a "latest" copy for the inference service
-    import shutil
-    latest_dir = os.path.join(os.path.dirname(__file__), "models", "latest")
-    if os.path.exists(latest_dir):
-        shutil.rmtree(latest_dir)
-    shutil.copytree(
-        os.path.join(os.path.dirname(__file__), "models", experiment_id),
-        latest_dir,
-    )
-    logger.info(f"Copied checkpoint to models/latest/")
+        # Also create a "latest" copy for the inference service
+        import shutil
+        latest_dir = os.path.join(os.path.dirname(__file__), "models", "latest")
+        if os.path.exists(latest_dir):
+            shutil.rmtree(latest_dir)
+        shutil.copytree(
+            os.path.join(os.path.dirname(__file__), "models", experiment_id),
+            latest_dir,
+        )
+        logger.info(f"Copied checkpoint to models/latest/")
 
     # Print comparison
     ig = iid_result["final_global"]
@@ -932,9 +919,14 @@ def main() -> None:
 
     # Save results as JSON
     results = {"experiment_id": experiment_id, "iid": iid_result, "non_iid": noniid_result}
-    with open("experiment_results.json", "w") as f:
+    results["selected_mode"] = best_mode
+    results["selection_metric"] = "validation_macro_f1"
+    output_path = f"{experiment_id}_results.json" if args.no_publish else "experiment_results.json"
+    with open(output_path, "w") as f:
         json.dump(results, f, indent=2, default=str)
-    logger.info("Saved results to experiment_results.json")
+    logger.info("Saved results to %s", output_path)
+    if args.no_publish:
+        return
 
     # Persist to DB
     args_dict = {

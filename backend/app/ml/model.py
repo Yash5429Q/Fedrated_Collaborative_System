@@ -8,9 +8,9 @@ Also provides standalone train() and test() helper functions.
 CYBER-20 improvements:
   - Wider MLP with BatchNorm for better feature normalization.
   - Class-weighted CrossEntropyLoss for imbalanced classes.
-  - AdamW optimizer with cosine annealing LR scheduler.
-  - Early stopping based on validation macro-F1.
-  - Reproducible seeded initialization.
+  - AdamW optimizer with optional FedProx regularization.
+  - Detailed evaluation metrics for checkpoint selection by the experiment runner.
+  - Supports externally seeded initialization.
 """
 from __future__ import annotations
 
@@ -70,11 +70,13 @@ class ThreatNet(nn.Module):
 
 def get_parameters(model: nn.Module) -> List[np.ndarray]:
     """Extract model parameters as a list of NumPy arrays."""
-    return [val.cpu().numpy() for _, val in model.state_dict().items()]
+    return [val.detach().cpu().numpy().copy() for _, val in model.state_dict().items()]
 
 
 def set_parameters(model: nn.Module, parameters: List[np.ndarray]) -> None:
     """Load parameters from a list of NumPy arrays into the model."""
+    if len(parameters) != len(model.state_dict()):
+        raise ValueError("Incorrect number of model parameter arrays")
     params_dict = zip(model.state_dict().keys(), parameters)
     state_dict = OrderedDict(
         {k: torch.tensor(v) for k, v in params_dict}
@@ -142,17 +144,26 @@ def train_model(
     lr: float = 0.001,
     weight_decay: float = 1e-4,
     class_weights: Optional[np.ndarray] = None,
+    proximal_mu: float = 0.0,
 ) -> Tuple[float, int]:
     """
-    Train the model locally and return (avg_loss, num_samples).
+    Train locally and return (average objective loss, examples processed in first epoch).
+
+    proximal_mu enables FedProx relative to the starting model.
+    Use ordinary non-replacement sampling for FedAvg sample weights.
 
     CYBER-20 improvements:
     - Uses AdamW with weight decay for regularization.
     - Supports class-weighted CrossEntropyLoss.
     - Lower default learning rate (0.001 vs 0.01).
     """
+    if epochs < 1:
+        raise ValueError("epochs must be positive")
+    if not np.isfinite(proximal_mu) or proximal_mu < 0:
+        raise ValueError("proximal_mu must be finite and non-negative")
     model.to(DEVICE)
     model.train()
+    reference = [p.detach().clone() for p in model.parameters()] if proximal_mu > 0 else []
 
     if class_weights is not None:
         weight_tensor = torch.from_numpy(class_weights).float().to(DEVICE)
@@ -167,19 +178,25 @@ def train_model(
     total_loss = 0.0
     total_samples = 0
 
-    for _ in range(epochs):
+    first_epoch_samples = 0
+    for epoch in range(epochs):
         for X_batch, y_batch in train_loader:
             X_batch, y_batch = X_batch.to(DEVICE), y_batch.to(DEVICE)
             optimizer.zero_grad()
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
+            if proximal_mu > 0:
+                penalty = sum((p - ref).square().sum() for p, ref in zip(model.parameters(), reference))
+                loss = loss + (proximal_mu / 2.0) * penalty
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * len(X_batch)
             total_samples += len(X_batch)
+            if epoch == 0:
+                first_epoch_samples += len(X_batch)
 
     avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-    return avg_loss, total_samples
+    return avg_loss, first_epoch_samples
 
 
 def test_model(

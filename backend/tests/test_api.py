@@ -17,15 +17,19 @@ from app.main import app
 # so tests stay correct after new experiment runs.
 _RESULTS_PATH = Path(__file__).resolve().parent.parent / "experiment_results.json"
 with open(_RESULTS_PATH, "r", encoding="utf-8") as _f:
-    LATEST_EXP_ID: str = json.load(_f)["experiment_id"]
-EXPECTED_IID_ACCURACY = 78.94   # confirmed from DB
-EXPECTED_IID_F1 = 73.84         # confirmed from DB
-EXPECTED_IID_FPR = 5.37         # confirmed from DB
-EXPECTED_TOTAL_ROUNDS = 20
-EXPECTED_LOCAL_EPOCHS = 3
-EXPECTED_CLIENTS = 3
-EXPECTED_TOTAL_SAMPLES = 37183
-EXPECTED_DIRICHLET_ALPHA = 0.5
+    _RESULTS = json.load(_f)
+LATEST_EXP_ID = _RESULTS["experiment_id"]
+_IID = _RESULTS["iid"]
+_FINAL = _IID["final_global"]
+EXPECTED_IID_ACCURACY = _FINAL["accuracy"]
+EXPECTED_IID_F1 = _FINAL["f1"]
+EXPECTED_IID_FPR = _FINAL["false_positive_rate"]
+EXPECTED_TOTAL_ROUNDS = _IID["num_rounds"]
+EXPECTED_LOCAL_EPOCHS = _IID["local_epochs"]
+EXPECTED_CLIENTS = _IID["num_clients"]
+EXPECTED_TOTAL_SAMPLES = (sum(_IID["split_counts"].values()) if "split_counts" in _IID
+                          else sum(p["total_samples"] for p in _IID["partition_stats"]))
+EXPECTED_DIRICHLET_ALPHA = _RESULTS["non_iid"]["alpha"]
 
 
 @pytest.fixture
@@ -104,10 +108,8 @@ async def test_dashboard_real_accuracy(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     acc = data["global_model_accuracy"]
-    # Must NOT be the seeded 94.7 value
-    assert abs(acc - 94.7) > 1.0, f"Accuracy {acc} looks like seeded value (94.7)"
-    # Must be close to real experiment value
-    assert abs(acc - EXPECTED_IID_ACCURACY) < 1.0, f"Expected ~{EXPECTED_IID_ACCURACY}, got {acc}"
+    # Compare against the independent stored experiment artifact.
+    assert acc == pytest.approx(EXPECTED_IID_ACCURACY, abs=0.011, rel=0)
 
 
 @pytest.mark.asyncio
@@ -117,8 +119,7 @@ async def test_dashboard_real_f1(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     f1 = data["f1_score"]
-    assert abs(f1 - 92.3) > 1.0, f"F1 {f1} looks like seeded value (92.3)"
-    assert abs(f1 - EXPECTED_IID_F1) < 1.0, f"Expected ~{EXPECTED_IID_F1}, got {f1}"
+    assert f1 == pytest.approx(EXPECTED_IID_F1, abs=0.011, rel=0)
 
 
 @pytest.mark.asyncio
@@ -128,13 +129,12 @@ async def test_dashboard_real_fpr(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     fpr = data["false_positive_rate"]
-    assert abs(fpr - 3.2) > 1.0, f"FPR {fpr} looks like seeded value (3.2)"
-    assert abs(fpr - EXPECTED_IID_FPR) < 1.0, f"Expected ~{EXPECTED_IID_FPR}, got {fpr}"
+    assert fpr == pytest.approx(EXPECTED_IID_FPR, abs=0.011, rel=0)
 
 
 @pytest.mark.asyncio
 async def test_dashboard_real_rounds(client: AsyncClient):
-    """Total rounds must be 10 (from CICIDS2017 experiment), not 12 or 25."""
+    """Total rounds must match the stored experiment."""
     r = await client.get("/api/dashboard")
     assert r.status_code == 200
     data = r.json()
@@ -178,13 +178,12 @@ async def test_training_real_accuracy(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     acc = data["summary"]["global_accuracy"]
-    assert abs(acc - 99.67) > 1.0, f"Accuracy {acc} looks like seeded value (99.67)"
-    assert abs(acc - EXPECTED_IID_ACCURACY) < 1.0, f"Expected ~{EXPECTED_IID_ACCURACY}, got {acc}"
+    assert acc == pytest.approx(EXPECTED_IID_ACCURACY, abs=0.011, rel=0)
 
 
 @pytest.mark.asyncio
 async def test_training_rounds_count(client: AsyncClient):
-    """Round history must contain exactly 10 rounds from the CICIDS2017 experiment."""
+    """Round history must match the stored experiment."""
     r = await client.get("/api/training/rounds")
     assert r.status_code == 200
     data = r.json()
@@ -227,8 +226,7 @@ async def test_performance_real_accuracy(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     acc = data["summary"]["federated_accuracy"]
-    assert abs(acc - 94.7) > 1.0, f"Accuracy {acc} looks like seeded value"
-    assert abs(acc - EXPECTED_IID_ACCURACY) < 1.0, f"Expected ~{EXPECTED_IID_ACCURACY}, got {acc}"
+    assert acc == pytest.approx(EXPECTED_IID_ACCURACY, abs=0.011, rel=0)
 
 
 @pytest.mark.asyncio
@@ -314,8 +312,7 @@ async def test_privacy_org_updates_use_real_round(client: AsyncClient):
     assert r.status_code == 200
     data = r.json()
     for org_upd in data["org_update_statuses"]:
-        assert org_upd["round"] != 15, \
-            f"round=15 is a hardcoded value; got {org_upd['round']} for {org_upd['org_id']}"
+        assert org_upd["round"] == EXPECTED_TOTAL_ROUNDS
 
 
 # ── Testing ────────────────────────────────────────────────────────────────────

@@ -104,6 +104,7 @@ def _load_raw_data(
     n_samples: int = 0,
     seed: int = 42,
     remove_duplicates: bool = True,
+    require_real: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Load real CIC-IDS2017 dataset from npz, or fallback to synthetic
@@ -146,6 +147,9 @@ def _load_raw_data(
             y = y[:n_samples]
 
         return X, y
+
+    if require_real:
+        raise FileNotFoundError(f"Required benchmark dataset missing: {_NPZ_PATH}")
 
     # --- FALLBACK: Synthetic Data Generation ---
     proportions = [0.40, 0.25, 0.15, 0.12, 0.08]
@@ -291,6 +295,7 @@ def create_splits(
     seed: int = 42,
     test_frac: float = 0.15,
     val_frac: float = 0.10,
+    require_real: bool = False,
 ) -> dict:
     """Create stratified train/val/test splits with normalization fitted on train.
 
@@ -299,8 +304,18 @@ def create_splits(
         X_train_norm, X_val_norm, X_test_norm,
         norm_mean, norm_std, class_weights
     """
+    if not (0 < test_frac < 1 and 0 < val_frac < 1 and test_frac + val_frac < 1):
+        raise ValueError("Invalid train/validation/test fractions")
     rng = np.random.RandomState(seed)
-    X, y = _load_raw_data(n_samples=n_samples, seed=seed)
+    X, y = _load_raw_data(n_samples=n_samples, seed=seed, require_real=require_real)
+    if X.ndim != 2 or X.shape[1] != NUM_FEATURES or y.shape != (len(X),):
+        raise ValueError("Invalid dataset shape")
+    if not np.isfinite(X).all() or not np.issubdtype(y.dtype, np.integer):
+        raise ValueError("Dataset must contain finite features and integer labels")
+    if set(np.unique(y)) != set(range(NUM_CLASSES)) or np.bincount(y).min() < 3:
+        raise ValueError("All classes need at least three records for benchmark splitting")
+    X = X.astype(np.float32, copy=False)
+    y = y.astype(np.int64, copy=False)
 
     # 1. Split off held-out test set (stratified)
     X_trainval, y_trainval, X_test, y_test = _stratified_split(
@@ -317,8 +332,9 @@ def create_splits(
                 f"test={len(X_test)}, total={len(X_train)+len(X_val)+len(X_test)}")
 
     # 3. Fit normalization ONLY on training data
-    norm_mean = X_train.mean(axis=0).astype(np.float32)
-    norm_std = (X_train.std(axis=0) + 1e-8).astype(np.float32)
+    norm_mean = X_train.mean(axis=0, dtype=np.float64).astype(np.float32)
+    norm_std = X_train.std(axis=0, dtype=np.float64).astype(np.float32)
+    norm_std = np.where(norm_std > 1e-8, norm_std, 1.0).astype(np.float32)
 
     # 4. Apply normalization to all splits using training stats
     X_train_norm = _apply_normalisation(X_train, norm_mean, norm_std)
@@ -374,10 +390,9 @@ def _partition_dirichlet(
       alpha=0.1  -> heavy skew
       alpha=0.01 -> extreme skew (some orgs may miss classes)
     """
-    num_classes = len(np.unique(y))
     partition_indices: List[List[int]] = [[] for _ in range(num_partitions)]
 
-    for cls in range(num_classes):
+    for cls in np.unique(y):
         cls_indices = np.where(y == cls)[0]
         rng.shuffle(cls_indices)
 
@@ -394,7 +409,7 @@ def _partition_dirichlet(
             partition_indices[part_id].extend(cls_indices[start:end].tolist())
             start = end
 
-    return [np.array(idx) for idx in partition_indices]
+    return [np.array(idx, dtype=np.int64) for idx in partition_indices]
 
 
 def _compute_stats(
@@ -587,3 +602,55 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray:
     total = class_counts.sum()
     weights = (total / (NUM_CLASSES * class_counts)).astype(np.float32)
     return weights
+
+
+# ── Strict benchmark pipeline (used by the revised experiment runner) ──
+
+def build_benchmark_partitions(
+    splits: dict,
+    num_partitions: int = 3,
+    batch_size: int = 64,
+    seed: int = 42,
+    iid: bool = True,
+    alpha: float = 0.5,
+) -> List[tuple[PartitionStats, DataLoader]]:
+    """Partition only the frozen training split; use its shared scaler.
+
+    Validation and test records are never assigned to client training loaders.
+    This is a controlled simulation: shared normalization is fitted centrally
+    on training data, not a production distributed privacy protocol.
+    """
+    if num_partitions < 1 or batch_size < 2 or not np.isfinite(alpha) or alpha <= 0:
+        raise ValueError("Invalid client count, batch size or alpha")
+    X, y = splits["X_train_norm"], splits["y_train"]
+    rng = np.random.RandomState(seed)
+    indices = (_partition_iid(y, num_partitions, rng) if iid else
+               _partition_dirichlet(y, num_partitions, alpha, rng))
+    combined = np.concatenate(indices)
+    if not np.array_equal(np.sort(combined), np.arange(len(y))):
+        raise ValueError("Client partitions must cover training rows exactly once")
+    results = []
+    for pid, idx in enumerate(indices):
+        if len(idx) < 2:
+            raise ValueError(f"Client {pid} has fewer than two training records; adjust alpha or seed")
+        stats = _compute_stats(pid, y[idx], len(idx), 0)
+        dataset = TensorDataset(torch.from_numpy(X[idx]), torch.from_numpy(y[idx]))
+        generator = torch.Generator().manual_seed(seed + pid)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                            drop_last=False, generator=generator)
+        results.append((stats, loader))
+    return results
+
+
+def benchmark_eval_loader(splits: dict, split: str, batch_size: int = 64) -> DataLoader:
+    """Return a common validation or final test loader; never the training set."""
+    if split not in ("val", "test"):
+        raise ValueError("Evaluation split must be 'val' or 'test'")
+    ds = TensorDataset(torch.from_numpy(splits[f"X_{split}_norm"]),
+                       torch.from_numpy(splits[f"y_{split}"]))
+    return DataLoader(ds, batch_size=batch_size, shuffle=False)
+
+
+def create_benchmark_splits(n_samples: int = 0, seed: int = 42) -> dict:
+    """Create the official benchmark splits; missing real data is an error."""
+    return create_splits(n_samples=n_samples, seed=seed, require_real=True)
