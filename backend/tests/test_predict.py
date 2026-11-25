@@ -243,9 +243,10 @@ class TestCheckpoint:
 
         loader = _InferenceModel()
         ok = loader.load(str(ckpt_dir))
-        if not ok:
-            assert loader.load_error is not None
-            assert "99" in loader.load_error or "features" in loader.load_error
+        assert not ok
+        assert not loader.is_loaded
+        assert loader.load_error is not None
+        assert "99" in loader.load_error or "features" in loader.load_error
 
     def test_missing_normalization_warns(self, tmp_path):
         """Checkpoint without normalization.npz should still load but flag it."""
@@ -279,8 +280,9 @@ class TestCheckpoint:
         )
         loader = _InferenceModel()
         ok = loader.load(str(ckpt_dir))
-        if not ok:
-            assert "mean" in (loader.load_error or "").lower() or "50" in (loader.load_error or "")
+        assert not ok
+        assert not loader.is_loaded
+        assert "mean" in (loader.load_error or "").lower()
 
     def test_malformed_std_rejected(self, tmp_path):
         """Normalization with wrong std shape should fail."""
@@ -299,8 +301,9 @@ class TestCheckpoint:
         )
         loader = _InferenceModel()
         ok = loader.load(str(ckpt_dir))
-        if not ok:
-            assert "std" in (loader.load_error or "").lower() or "10" in (loader.load_error or "")
+        assert not ok
+        assert not loader.is_loaded
+        assert "std" in (loader.load_error or "").lower()
 
 
 # ── Critical Normalization Proof Test ──────────────────────────

@@ -3,17 +3,17 @@ Privacy-preserving mechanisms for federated model updates.
 
 Implements:
   1. Update Clipping — L2 norm clipping to bound individual contribution sensitivity.
-  2. Differential Privacy — Gaussian noise calibrated to the clipping bound.
+  2. Experimental Gaussian noise — scaled to the clipping bound.
   3. Update Validation — Server-side structural and anomaly checks on incoming updates.
 
 These mechanisms operate on model parameter arrays (List[np.ndarray]) —
 the format used by Flower's NumPyClient for weight transmission.
 
-Privacy guarantees:
-  - Raw training data NEVER leaves the client.
-  - Only model weight updates (clipped + noised) are transmitted.
-  - The server validates update structure before aggregation.
-  - The Gaussian noise provides (epsilon, delta)-differential privacy per round.
+Simulation limitations:
+  - Training partitions are separate in a single-process simulation.
+  - Model parameters, including unprotected buffers, are passed to the aggregator.
+  - Structural validation does not authenticate client identity.
+  - Formal differential privacy and secure aggregation are not established.
 """
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def add_dp_noise(
     mask: Optional[List[bool]] = None,
 ) -> List[np.ndarray]:
     """
-    Add calibrated Gaussian noise to the model update for differential privacy.
+    Add experimental Gaussian noise; no certified privacy guarantee.
 
     noise ~ N(0, noise_std^2 * I)
     where noise_std = noise_multiplier * clip_norm

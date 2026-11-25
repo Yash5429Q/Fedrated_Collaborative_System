@@ -67,29 +67,19 @@ class _InferenceModel:
     def load(self, checkpoint_dir: Optional[str] = None) -> bool:
         """Load model weights and normalization from a checkpoint directory.
 
-        Tries ``checkpoint_dir`` first, then ``models/latest/``.
+        Loads only the explicit directory, or models/latest if omitted.
         Returns True on success, False on failure.
         """
-        search_dirs = []
-        if checkpoint_dir:
-            search_dirs.append(Path(checkpoint_dir))
-        search_dirs.append(_LATEST_DIR)
-
-        # Also scan models/ for the most recent experiment folder
-        if _MODELS_DIR.exists():
-            exp_dirs = sorted(
-                [d for d in _MODELS_DIR.iterdir()
-                 if d.is_dir() and d.name != "latest" and (d / "global_model.pt").exists()],
-                key=lambda d: d.name,
-                reverse=True,
-            )
-            search_dirs.extend(exp_dirs)
+        # A failed reload must never leave a previous model marked ready.
+        self.__init__()
+        search_dirs = [Path(checkpoint_dir) if checkpoint_dir is not None else _LATEST_DIR]
 
         for cdir in search_dirs:
             model_file = cdir / "global_model.pt"
             meta_file = cdir / "metadata.json"
             norm_file = cdir / "normalization.npz"
-            if not model_file.exists():
+            if not model_file.is_file():
+                self.load_error = f"Missing checkpoint weights: {model_file}"
                 continue
 
             try:
@@ -99,6 +89,11 @@ class _InferenceModel:
                     with open(meta_file) as f:
                         meta = json.load(f)
 
+                if not isinstance(meta, dict):
+                    raise ValueError("Invalid checkpoint metadata")
+                mapping = meta.get("class_mapping")
+                if mapping is not None and mapping != {str(i): name for i, name in enumerate(CLASS_NAMES)}:
+                    raise ValueError("Checkpoint class mapping mismatch")
                 rule = meta.get("decision_rule")
                 if rule is not None:
                     if not isinstance(rule, dict) or rule.get("version") != "attack_gate_v1" or "attack_threshold" not in rule:
@@ -202,7 +197,7 @@ class _InferenceModel:
 
         if not self.is_loaded:
             if not self.load_error:
-                self.load_error = "No checkpoint found in models/ directory"
+                self.load_error = "Requested checkpoint unavailable"
             logger.warning("No valid ThreatNet checkpoint found")
         return False
 
