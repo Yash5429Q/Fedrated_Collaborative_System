@@ -387,6 +387,7 @@ def run_experiment(
         "best_validation_f1": best_val_f1 * 100,
         "proximal_mu": proximal_mu,
         "evaluation_protocol": "common_held_out_v1",
+        "preprocessing": splits.get("preprocessing"),
         "split_seed": seed,
         "split_counts": {k: len(splits["y_" + k]) for k in ("train", "val", "test")},
         "round_evaluation_split": "validation",
@@ -696,7 +697,8 @@ def _save_checkpoint(
         std=norm_std,
         feature_names=np.array(FEATURE_NAMES),
         epsilon=np.float32(1e-8),
-        normalization_method="zscore",
+        normalization_method="robust_zscore_v1" if result.get("preprocessing") else "zscore",
+        preprocessing_json=np.array(json.dumps(result.get("preprocessing"))),
     )
     logger.info(f"  Saved normalization.npz (fitted on training data only)")
 
@@ -733,7 +735,8 @@ def _save_checkpoint(
         "evaluation_protocol": result.get("evaluation_protocol"),
         "split_counts": result.get("split_counts"),
         "best_validation_f1": result.get("best_validation_f1"),
-        "normalization_method": "zscore",
+        "normalization_method": "robust_zscore_v1" if result.get("preprocessing") else "zscore",
+        "preprocessing": result.get("preprocessing"),
         "normalization_artifact": "normalization.npz",
         "normalization_scope": "training_only",
         "normalization_note": "Mean/std fitted ONLY on training split, not on test/val data",

@@ -296,6 +296,7 @@ def create_splits(
     test_frac: float = 0.15,
     val_frac: float = 0.10,
     require_real: bool = False,
+    robust: bool = False,
 ) -> dict:
     """Create stratified train/val/test splits with normalization fitted on train.
 
@@ -332,14 +333,19 @@ def create_splits(
                 f"test={len(X_test)}, total={len(X_train)+len(X_val)+len(X_test)}")
 
     # 3. Fit normalization ONLY on training data
-    norm_mean = X_train.mean(axis=0, dtype=np.float64).astype(np.float32)
-    norm_std = X_train.std(axis=0, dtype=np.float64).astype(np.float32)
+    preprocessing = fit_robust_preprocessing(X_train) if robust else None
+    fit_data = repair_features(X_train, preprocessing) if robust else X_train
+    norm_mean = fit_data.mean(axis=0, dtype=np.float64).astype(np.float32)
+    norm_std = fit_data.std(axis=0, dtype=np.float64).astype(np.float32)
     norm_std = np.where(norm_std > 1e-8, norm_std, 1.0).astype(np.float32)
 
     # 4. Apply normalization to all splits using training stats
-    X_train_norm = _apply_normalisation(X_train, norm_mean, norm_std)
-    X_val_norm = _apply_normalisation(X_val, norm_mean, norm_std)
-    X_test_norm = _apply_normalisation(X_test, norm_mean, norm_std)
+    if robust:
+        X_train_norm, X_val_norm, X_test_norm = [apply_robust_preprocessing(x, norm_mean, norm_std, preprocessing) for x in (X_train, X_val, X_test)]
+    else:
+        X_train_norm = _apply_normalisation(X_train, norm_mean, norm_std)
+        X_val_norm = _apply_normalisation(X_val, norm_mean, norm_std)
+        X_test_norm = _apply_normalisation(X_test, norm_mean, norm_std)
 
     # 5. Compute class weights (inverse frequency)
     class_counts = np.bincount(y_train, minlength=NUM_CLASSES).astype(np.float64)
@@ -359,6 +365,7 @@ def create_splits(
         "norm_mean": norm_mean,
         "norm_std": norm_std,
         "class_weights": class_weights,
+        **({"preprocessing": preprocessing} if robust else {}),
     }
 
 
@@ -653,4 +660,52 @@ def benchmark_eval_loader(splits: dict, split: str, batch_size: int = 64) -> Dat
 
 def create_benchmark_splits(n_samples: int = 0, seed: int = 42) -> dict:
     """Create the official benchmark splits; missing real data is an error."""
-    return create_splits(n_samples=n_samples, seed=seed, require_real=True)
+    return create_splits(n_samples=n_samples, seed=seed, require_real=True, robust=True)
+
+
+ROBUST_FEATURE_NAMES = ("min_seg_size_forward", "Fwd Header Length.1", "Fwd Header Length", "Bwd Header Length")
+
+def fit_robust_preprocessing(X_train):
+    """Fit repair medians on valid training measurements only."""
+    medians = {}
+    for name in ROBUST_FEATURE_NAMES:
+        i = FEATURE_NAMES.index(name)
+        valid = X_train[:, i][X_train[:, i] >= 0]
+        if not len(valid):
+            raise ValueError(f"No valid training measurements for {name}")
+        medians[name] = float(np.median(valid))
+    return {"version": "robust_zscore_v1", "negative_medians": medians, "clip_abs": 10.0}
+
+
+def validate_preprocessing(config):
+    if not isinstance(config, dict) or config.get("version") != "robust_zscore_v1":
+        raise ValueError("Unsupported preprocessing configuration")
+    medians = config.get("negative_medians")
+    if not isinstance(medians, dict) or set(medians) != set(ROBUST_FEATURE_NAMES):
+        raise ValueError("Invalid repair feature set")
+    if any(not isinstance(v, (int, float)) or not np.isfinite(v) or v < 0 for v in medians.values()):
+        raise ValueError("Invalid repair median")
+    if config.get("clip_abs") != 10.0:
+        raise ValueError("Invalid clipping bound")
+
+
+def repair_features(features, config):
+    validate_preprocessing(config)
+    x = np.array(features, dtype=np.float64, copy=True)
+    if x.shape[-1] != NUM_FEATURES or not np.isfinite(x).all():
+        raise ValueError("Invalid raw features")
+    for name, median in config["negative_medians"].items():
+        i = FEATURE_NAMES.index(name)
+        x[..., i] = np.where(x[..., i] < 0, median, x[..., i])
+    return x
+
+
+def apply_robust_preprocessing(features, mean, std, config):
+    x = repair_features(features, config)
+    mean, std = np.asarray(mean, dtype=np.float64), np.asarray(std, dtype=np.float64)
+    if mean.shape != (NUM_FEATURES,) or std.shape != (NUM_FEATURES,) or not np.isfinite(mean).all() or not np.isfinite(std).all() or np.any(std <= 0):
+        raise ValueError("Invalid normalization parameters")
+    z = (x - mean) / std
+    if not np.isfinite(z).all():
+        raise ValueError("Non-finite normalized values")
+    return np.clip(z, -config["clip_abs"], config["clip_abs"]).astype(np.float32)

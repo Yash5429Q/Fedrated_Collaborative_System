@@ -35,6 +35,7 @@ if hasattr(torch, "set_num_threads"):
 
 from app.ml.data import CLASS_NAMES, NUM_CLASSES, NUM_FEATURES, FEATURE_NAMES
 from app.ml.model import ThreatNet
+from app.ml.data import apply_robust_preprocessing, validate_preprocessing
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class _InferenceModel:
         self.is_loaded: bool = False
         self.load_error: Optional[str] = None
         # Normalization parameters
+        self.preprocessing = None
         self.norm_mean: Optional[np.ndarray] = None
         self.norm_std: Optional[np.ndarray] = None
         self.norm_feature_names: Optional[list] = None
@@ -128,9 +130,16 @@ class _InferenceModel:
                 norm_std = None
                 norm_feature_names = None
                 has_norm = False
+                preprocessing = None
 
                 if norm_file.exists():
                     with np.load(norm_file, allow_pickle=True) as norm_data:
+                        if "preprocessing_json" in norm_data:
+                            preprocessing = json.loads(str(norm_data["preprocessing_json"].item()))
+                            if preprocessing is not None:
+                                validate_preprocessing(preprocessing)
+                        if meta.get("preprocessing") != preprocessing:
+                            raise ValueError("Checkpoint preprocessing metadata mismatch")
                         nm = norm_data["mean"].astype(np.float32)
                         ns = norm_data["std"].astype(np.float32)
                         if "feature_names" in norm_data:
@@ -165,6 +174,7 @@ class _InferenceModel:
                 self.checkpoint_path = str(cdir)
                 self.is_loaded = True
                 self.load_error = None
+                self.preprocessing = preprocessing
                 self.norm_mean = norm_mean
                 self.norm_std = norm_std
                 self.norm_feature_names = norm_feature_names
@@ -270,7 +280,10 @@ def predict(features: List[float]) -> dict:
     if not inf.has_normalization or inf.norm_mean is None or inf.norm_std is None:
         raise RuntimeError("Prediction unavailable: checkpoint normalization is missing")
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        normalized = normalise_features(raw, inf.norm_mean, inf.norm_std)
+        if getattr(inf, "preprocessing", None) is not None:
+            normalized = apply_robust_preprocessing(raw, inf.norm_mean, inf.norm_std, inf.preprocessing)
+        else:
+            normalized = normalise_features(raw, inf.norm_mean, inf.norm_std)
     if not np.isfinite(normalized).all():
         raise ValueError("Input produces non-finite normalized features")
 
