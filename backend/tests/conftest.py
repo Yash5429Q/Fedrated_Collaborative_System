@@ -160,3 +160,20 @@ def isolated_test_database(request: pytest.FixtureRequest) -> Generator[None, No
                 db_path.unlink()
         except Exception:
             pass
+
+
+@pytest.fixture(autouse=True)
+def isolate_legacy_access_checks(request):
+    """Existing functional tests isolate access; dedicated security tests use real checks."""
+    if request.module.__name__.endswith("test_access_control"):
+        yield
+        return
+    from app.main import app
+    from app.core.access import require_access
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides[require_access] = lambda: "operator"
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)

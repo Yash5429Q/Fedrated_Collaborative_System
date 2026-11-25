@@ -5,6 +5,7 @@ Values are loaded from environment variables or a .env file.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import field_validator
@@ -36,6 +37,8 @@ class Settings(BaseSettings):
     cors_origins: str = (
         "http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173"
     )
+
+    access_registry_path: str = str(Path.home() / ".cyber20" / "access.json")
 
     # ── Logging ────────────────────────────────────────────
     log_level: str = "INFO"

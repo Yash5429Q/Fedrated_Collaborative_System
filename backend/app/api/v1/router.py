@@ -2,7 +2,8 @@
 Central router — aggregates all v1 sub-routers.
 Import this single router into main.py.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.access import require_access
 
 from app.api.v1 import (
     dashboard,
@@ -17,7 +18,7 @@ from app.api.v1 import (
     experiments,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_access)])
 
 router.include_router(dashboard.router)
 router.include_router(organizations.router)

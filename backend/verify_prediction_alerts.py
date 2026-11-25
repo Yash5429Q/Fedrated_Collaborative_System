@@ -1,16 +1,18 @@
 """Verify the running local backend. With --record-one, intentionally save one dataset-based alert."""
 from argparse import ArgumentParser
 import json
+from getpass import getpass
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 
 BASE = "http://127.0.0.1:8000"
+TOKEN = ""
 EXPERIMENT = "exp_20261125_173246_9acfd8aa"
 
 
 def request(path, payload=None):
-    req = Request(BASE + path, data=None if payload is None else json.dumps(payload, allow_nan=False).encode(), headers={"Content-Type": "application/json"})
+    req = Request(BASE + path, data=None if payload is None else json.dumps(payload, allow_nan=False).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + TOKEN})
     with urlopen(req, timeout=60) as response:
         return json.load(response)
 
@@ -21,9 +23,11 @@ def require(condition, message):
 
 
 def main():
+    global TOKEN
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--record-one", action="store_true", help="Save one DoS prediction alert from the frozen test dataset. Each run creates a new alert.")
     args = parser.parse_args()
+    TOKEN = getpass("Operator token: ").strip()
     h = request("/api/predict/health")
     require(h["model_loaded"] and h["experiment_id"] == EXPERIMENT and h["mode"] == "non_iid" and h["attack_threshold"] == .75, "Wrong running checkpoint")
     before = request("/api/threats")

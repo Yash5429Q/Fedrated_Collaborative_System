@@ -40,6 +40,10 @@ export class ApiError extends Error {
 }
 
 
+let accessToken = ''
+export function setAccessToken(token: string) { accessToken = token.trim() }
+export function clearAccessToken() { accessToken = '' }
+
 /* ── Core request helper ──────────────────────────────────── */
 
 async function request<T>(
@@ -47,17 +51,25 @@ async function request<T>(
   options?: RequestInit,
 ): Promise<T> {
   const url = resolveUrl(path)
+  const token = accessToken
+  const headers = new Headers(options?.headers)
+  headers.set('Content-Type', 'application/json')
+  headers.set('Accept', 'application/json')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   let res: Response
   try {
     res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      ...options,
+      ...options, headers, cache: 'no-store', redirect: 'error',
     })
   } catch {
     throw new ApiError(0, `Network error — could not reach ${url}`)
   }
 
   if (!res.ok) {
+    if (res.status === 401 && token === accessToken) {
+      clearAccessToken()
+      window.dispatchEvent(new Event('cyber20-access-denied'))
+    }
     let body: unknown
     try { body = await res.json() } catch { body = null }
     const msg =

@@ -45,8 +45,8 @@ app = FastAPI(
     version=settings.app_version,
     description=(
         "Backend API for CYBER-20 — Federated Collaborative Threat Detection. "
-        "Currently serving structured demo data. Real Flower FL and PyTorch ML "
-        "integration will be added in later phases."
+        "Serving experiment metrics and deployed PyTorch predictions. "
+        "Federated training is simulated."
     ),
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -59,7 +59,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -70,6 +70,8 @@ app.add_middleware(
 async def log_requests(request: Request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     duration_ms = (time.perf_counter() - start) * 1000
     logger.info(
         "%s %s -> %d  (%.1f ms)",
@@ -88,7 +90,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": "internal_server_error",
             "message": "An unexpected error occurred.",
-            "detail": str(exc) if settings.debug else None,
+            "detail": None,
         },
     )
 
