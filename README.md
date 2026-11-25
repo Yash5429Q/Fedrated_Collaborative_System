@@ -7,7 +7,9 @@ The application combines a React dashboard, a FastAPI backend, a trained PyTorch
 - **Repository:** [Fedrated_Collaborative_System](https://github.com/Yash5429Q/Fedrated_Collaborative_System)
 - **Main branch:** `main`
 - **Verified local application checkpoint:** `3cf7a46` (before cloud preparation)
-- **Cloud demonstration URL:** Pending deployment and online verification.
+- **Cloud demonstration:** [Open CYBER-20](https://cyber20-threat-detection.vercel.app) (private access credential required).
+- **Backend:** [Render API](https://cyber20-backend.onrender.com/health)
+- **Verified backend deployment commit:** `003ff9c` (26 November 2026).
 
 ## Features
 
@@ -193,7 +195,7 @@ From `backend/` with the virtual environment activated:
 python -m pytest tests/ -q --tb=short
 ```
 
-Verified local evidence before cloud preparation: **250 passed, 2 warnings, 33.64 seconds**. The deployment seeding update adds five tests; rerun the complete suite to establish the updated count. The frontend production build also passed before cloud preparation. Automated regression testing is separate from university acceptance testing.
+Latest verified local regression evidence: **255 passed, 2 warnings, 16.56 seconds** (26 November 2026), including five deployment-specific tests. The frontend production build and Vercel production deployment also succeeded. Automated regression testing is separate from university acceptance testing.
 
 Run `python verify_prediction_alerts.py` while the local backend is running; enter a private Operator token when prompted. `--record-one` intentionally adds one new dataset-based prediction alert. Use this option only when a new alert is wanted.
 
@@ -205,9 +207,15 @@ python run_experiment.py --rounds 8 --epochs 3 --alpha 0.5 --noise-multiplier 0.
 
 This creates a new experiment candidate, not an automatic replacement for the frozen deployment. Exact numerical reproduction depends on the software/hardware environment. Preserve the committed checkpoint and evidence. Historical experiment directories are ignored by Git; local `prepare_deployment.py` uses the original exported directory, which may not be present in a clean clone.
 
-## Cloud deployment (planned, not yet verified)
+## Cloud deployment (verified academic demonstration)
 
-Proposed academic demo: Render FastAPI backend and Vercel React frontend, both from `main`. The database is SQLite on the free Render filesystem. Recorded alerts may reset after restart, sleep or redeployment; the experiment metrics can be reseeded from committed evidence. Persistent storage and production hardening are separate tasks.
+The academic demonstration is deployed on Render (FastAPI backend) and Vercel (React frontend), both from `main`, using free hosting plans.
+
+- Application: https://cyber20-threat-detection.vercel.app
+- Backend: https://cyber20-backend.onrender.com
+- Deployment verified on 26 November 2026.
+
+Open the application and sign in with a valid cloud credential supplied privately by the administrator. The backend may take time to wake after inactivity. The database is SQLite on the free Render filesystem. Recorded alerts may reset after restart, sleep or redeployment; the experiment metrics can be reseeded from committed evidence. Persistent storage and production hardening are separate tasks.
 
 ### Render backend
 
@@ -217,22 +225,37 @@ Proposed academic demo: Render FastAPI backend and Vercel React frontend, both f
 - Health check: `/health` (liveness only; verify model readiness separately).
 - `ENVIRONMENT=production`, `DEBUG=false`
 - `DATABASE_URL=sqlite+aiosqlite:///./cyber20.db`
-- `CORS_ORIGINS`: exact deployed Vercel HTTPS origin (no trailing slash).
+- `CORS_ORIGINS=http://localhost:5173,https://cyber20-threat-detection.vercel.app` (comma-separated origins; no trailing slash).
 - `ACCESS_REGISTRY_PATH=/etc/secrets/access.json`
 
 Create a separate cloud credential registry locally with `manage_access.py` and upload its JSON contents via Render Secret Files under the name `access.json`. Do not publish the file or the bearer tokens. The service rejects missing/invalid/expired/revoked credentials. Regenerate short-lived evaluator credentials as needed; uploading a changed secret file requires applying the updated service configuration.
 
-The initial plan uses a single CPU worker and installs the CPU PyTorch wheel rather than the CUDA build. Free hosting has memory and cold-start constraints; successful startup and actual inference must be tested before declaring deployment complete. Dependency versions for Linux still need verification against the working local environment.
+The deployed backend uses a single CPU worker and CPU PyTorch. Startup and authenticated model readiness were verified on Render. Free hosting still has memory and cold-start constraints; sustained load and restart durability have not been established.
 
 ### Vercel frontend
 
 - Framework: Vite; root directory: `frontend`
 - Node.js: 22.x (at least 22.12) or 24.x
 - Install: `npm ci`; build: `npm run build`; output: `dist`
-- Set `VITE_API_BASE_URL` to the actual Render HTTPS backend origin followed by `/api`.
+- `VITE_API_BASE_URL=https://cyber20-backend.onrender.com` (the API client adds `/api` automatically).
 - `vercel.json` supports refreshing and opening nested dashboard routes directly.
 
-Configure the backend CORS origin after the frontend URL is known and redeploy as necessary. Test anonymous 401, Viewer read access, Viewer prediction rejection, Operator inference, and a recorded sample alert. Verify experiment ID, 94.48% displayed accuracy, and threshold 0.75. The public URL will be added here after these checks pass. Evaluator credentials are supplied privately, never in the report or README.
+### Verified cloud evidence
+
+| Check | Observed result |
+| --- | --- |
+| Public backend health | HTTP 200 |
+| Anonymous dashboard and model health access | HTTP 401, bearer challenge and no-store |
+| Authenticated model health | HTTP 200; ThreatNet and normalization loaded; 68 features, 5 classes, threshold 0.75 |
+| Authenticated dashboard | HTTP 200; matching experiment ID, 94.48% accuracy and 93.08% macro F1 |
+| Frontend production deployment | Successful (17 seconds) |
+| Browser integration | Operator dashboard and Viewer prediction page accessible with valid credentials; CORS preflight HTTP 200 in Render logs |
+| Viewer interface | Read-only message and disabled classification controls |
+| Prediction alert display | Two cloud prediction alerts displayed in the dashboard screenshot |
+
+Cloud operation was demonstrated by the project operator. The screenshots and API outputs do not independently establish all five individual prediction results, cloud-side Viewer POST rejection, expiry/revocation behavior in the cloud, or sustained performance. Local automated access-control tests are separate evidence.
+
+Evaluator credentials are supplied privately, never in the report or README. Credentials issued by the current CLI expire within 24 hours; generate fresh credentials before evaluation and update the Render secret registry as needed. Local revocation does not automatically update the cloud registry.
 
 Official guides: [Render Web Services](https://render.com/docs/web-services), [Render free hosting](https://render.com/docs/free), [Render secrets](https://render.com/docs/configure-environment-variables), [Vercel Vite deployment](https://vercel.com/docs/frameworks/frontend/vite), [PyTorch CPU installation](https://pytorch.org/get-started/locally/).
 
