@@ -798,7 +798,10 @@ def main() -> None:
     parser.add_argument("--tune-attack-threshold", action="store_true", help="Select optional attack gate on validation only")
     parser.add_argument("--no-publish", action="store_true", help="Save separate JSON only; do not change latest checkpoint or database")
     parser.set_defaults(class_weights=True, enable_clipping=True, enable_dp_noise=True, enable_validation=True)
+    parser.add_argument("--export-checkpoint", choices=["iid", "non_iid"], help="Export selected mode to its experiment folder only; requires --no-publish")
     args = parser.parse_args()
+    if args.export_checkpoint and not args.no_publish:
+        parser.error("--export-checkpoint requires --no-publish")
 
     if args.rounds < 1 or args.epochs < 1 or args.samples < 0 or not np.isfinite(args.proximal_mu) or args.proximal_mu < 0:
         parser.error("Invalid rounds, epochs, samples or proximal-mu")
@@ -903,6 +906,15 @@ def main() -> None:
         )
         logger.info(f"Copied checkpoint to models/latest/")
 
+    if args.export_checkpoint:
+        export_mode = args.export_checkpoint
+        if export_mode == "iid":
+            export_model, export_result, export_mean, export_std = iid_model, iid_result, iid_norm_mean, iid_norm_std
+        else:
+            export_model, export_result, export_mean, export_std = noniid_model, noniid_result, noniid_norm_mean, noniid_norm_std
+        _save_checkpoint(export_model, experiment_id, args, export_mode, export_result, export_mean, export_std)
+        logger.info("Exported %s checkpoint only; models/latest and database unchanged", export_mode)
+
     # Print comparison
     ig = iid_result["final_global"]
     ng = noniid_result["final_global"]
@@ -943,6 +955,7 @@ def main() -> None:
     results = {"experiment_id": experiment_id, "iid": iid_result, "non_iid": noniid_result}
     results["selected_mode"] = best_mode
     results["selection_metric"] = "validation_macro_f1"
+    results["exported_mode"] = args.export_checkpoint
     output_path = f"{experiment_id}_results.json" if args.no_publish else "experiment_results.json"
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2, default=str)
