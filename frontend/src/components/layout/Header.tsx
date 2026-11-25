@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom'
-import { Activity, Bell } from 'lucide-react'
+import { ShieldCheck, LogOut } from 'lucide-react'
+import { getAccessRole } from '@/lib/apiClient'
 import { navigationItems } from '@/config/navigation'
 
 export default function Header() {
@@ -25,18 +26,18 @@ export default function Header() {
       <div className="flex items-center gap-4">
         {/* System status indicator */}
         <div className="flex items-center gap-2 rounded-md border border-cyber-700/50 bg-cyber-800/50 px-3 py-1.5">
-          <Activity className="h-3.5 w-3.5 text-accent-green" />
+          <ShieldCheck className="h-3.5 w-3.5 text-accent-green" />
           <span className="text-xs font-medium text-gray-400">
-            System Idle
+            {getAccessRole() === 'operator' ? 'Operator' : 'Viewer'}
           </span>
         </div>
 
         {/* Notifications placeholder */}
         <button
-          className="relative rounded-md p-2 text-gray-500 transition-colors hover:bg-cyber-800 hover:text-gray-300"
-          aria-label="Notifications"
+          className="flex items-center gap-2 rounded-md p-2 text-gray-300 hover:bg-cyber-800"
+          onClick={() => window.dispatchEvent(new Event('cyber20-sign-out'))}
         >
-          <Bell className="h-5 w-5" />
+          <LogOut className="h-4 w-4" /> Sign out
         </button>
       </div>
     </header>

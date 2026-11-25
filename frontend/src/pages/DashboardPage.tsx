@@ -122,7 +122,7 @@ const orgColumns: Column<OrganizationActivity>[] = [
   },
   {
     key: 'update',
-    header: 'Last Update',
+    header: 'Registry Timestamp',
     align: 'right',
     render: (r) => <span className="text-xs text-gray-500">{r.lastUpdate}</span>,
   },
@@ -149,11 +149,6 @@ export default function DashboardPage() {
 
   const { summary, trainingRounds, modelComparison, threatDistribution, orgActivity, recentThreats, systemHealth } = data
 
-  // Local vs Federated chart: determine correct domain to show full range
-  const allCompValues = modelComparison.flatMap(m => [m.local, m.federated]).filter(v => v > 0)
-  const compMin = allCompValues.length > 0 ? Math.max(0, Math.floor(Math.min(...allCompValues) / 10) * 10) : 0
-  const compMax = allCompValues.length > 0 ? Math.min(100, Math.ceil(Math.max(...allCompValues) / 10) * 10 + 5) : 100
-
   const statCards = [
     {
       label: 'Registered Orgs',
@@ -178,7 +173,7 @@ export default function DashboardPage() {
       bgAccent: 'bg-accent-purple/10',
     },
     {
-      label: 'Threats Detected',
+      label: 'Prediction Alerts',
       value: summary.threatsDetected.toLocaleString(),
       icon: ShieldAlert,
       accent: 'text-accent-red',
@@ -194,14 +189,14 @@ export default function DashboardPage() {
       // No trend: single final-round value from experiment; no prior experiment for delta.
     },
     {
-      label: 'F1 Score',
+      label: 'Macro F1',
       value: `${summary.f1Score}%`,
       icon: BarChart3,
       accent: 'text-accent-amber',
       bgAccent: 'bg-accent-amber/10',
     },
     {
-      label: 'False-Positive Rate',
+      label: 'Macro FPR',
       value: `${summary.falsePositiveRate}%`,
       icon: AlertTriangle,
       accent: 'text-orange-400',
@@ -209,8 +204,8 @@ export default function DashboardPage() {
       // No trend: single final-round value; no prior experiment for delta.
     },
     {
-      label: 'Privacy Status',
-      value: summary.privacyStatus,
+      label: 'Binary FPR',
+      value: summary.binaryFalsePositiveRate == null ? '—' : `${summary.binaryFalsePositiveRate.toFixed(2)}%`,
       icon: Lock,
       accent: 'text-accent-green',
       bgAccent: 'bg-accent-green/10',
@@ -230,8 +225,9 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <div className="text-xs text-gray-400">Selected checkpoint: round {summary.bestRound ?? '—'} · Binary attack detection: {summary.binaryDetectionRate == null ? '—' : `${summary.binaryDetectionRate.toFixed(2)}%`} · {summary.privacyStatus}</div>
       {/* ── Top summary row ─────────────────────────── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
         {statCards.map((card) => (
           <StatCard key={card.label} {...card} />
         ))}
@@ -249,8 +245,8 @@ export default function DashboardPage() {
       {/* ── Row 1: Training Performance + Local vs Federated ── */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <ChartCard
-          title="Federated Training Performance"
-          subtitle={`Accuracy, F1 & FPR across ${summary.totalRounds} rounds — ${summary.experimentId ?? 'latest experiment'}`}
+          title="Federated Validation Performance"
+          subtitle={`Validation accuracy, macro F1 & macro FPR across ${summary.totalRounds} rounds — ${summary.experimentId ?? 'latest experiment'}`}
           className="xl:col-span-2"
         >
           <ResponsiveContainer width="100%" height={300}>
@@ -291,7 +287,7 @@ export default function DashboardPage() {
                 yAxisId="accuracy"
                 type="monotone"
                 dataKey="f1Score"
-                name="F1 Score %"
+                name="Macro F1 %"
                 stroke="#a78bfa"
                 strokeWidth={2}
                 dot={{ fill: '#a78bfa', r: 3 }}
@@ -314,7 +310,7 @@ export default function DashboardPage() {
 
         <ChartCard
           title="Local vs Federated Model"
-          subtitle="Performance comparison across key metrics"
+          subtitle="Common held-out test set · independent local average vs deployed model"
         >
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={modelComparison} barGap={4}>
@@ -326,7 +322,7 @@ export default function DashboardPage() {
                 axisLine={{ stroke: '#1a2540' }}
               />
               <YAxis
-                domain={[compMin, compMax]}
+                domain={[0, 100]}
                 tick={{ fill: '#6b7280', fontSize: 12 }}
                 tickLine={false}
                 axisLine={{ stroke: '#1a2540' }}
@@ -349,7 +345,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <ChartCard
           title="Threat Distribution"
-          subtitle={`Detected threat categories across all organizations (${summary.threatsDetected} total)`}
+          subtitle={`Recorded model prediction alerts (${summary.threatsDetected} total)`}
         >
           {threatDistribution.length === 0 ? (
             <p className="py-16 text-center text-sm text-gray-600">No threat detections recorded</p>
@@ -406,8 +402,8 @@ export default function DashboardPage() {
       {/* ── Row 3: Recent Threats + System Health ──────────── */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <ChartCard
-          title="Recent Threat Detections"
-          subtitle="Latest detections across all organizations"
+          title="Recent Prediction Alerts"
+          subtitle="Recorded predictions, not confirmed attacks"
           className="xl:col-span-2"
         >
           {recentThreats.length === 0 ? (

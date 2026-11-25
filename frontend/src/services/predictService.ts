@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/apiClient'
 
 export interface PredictRequest {
   features: number[]
+  record_alert?: boolean
 }
 
 export interface PredictionResult {
@@ -22,9 +23,15 @@ export interface PredictResponse {
   prediction: PredictionResult
   probabilities: Record<string, number>
   model: ModelInfo
+  attack_score: number | null
+  attack_threshold: number | null
+  decision_rule: string | null
+  alert_id: string | null
+  latency_ms: number | null
 }
 
 export interface PredictHealthResponse {
+  normalization_loaded: boolean
   model_loaded: boolean
   model_name: string
   input_features: number
@@ -36,10 +43,11 @@ export interface PredictHealthResponse {
 }
 
 export const predictService = {
-  async predict(features: number[]): Promise<PredictResponse> {
-    return apiClient.post<PredictResponse>('/predict', { features })
+  async predict(features: number[], record_alert = false): Promise<PredictResponse> {
+    return apiClient.post<PredictResponse>('/predict', { features, record_alert })
   },
 
+  async samples() { return apiClient.get<{experiment_id: string; seed: number; feature_names: string[]; samples: {label: string; test_index: number; features: number[]}[]}>('/predict/samples') },
   async health(): Promise<PredictHealthResponse> {
     return apiClient.get<PredictHealthResponse>('/predict/health')
   },

@@ -98,6 +98,9 @@ export interface DashboardSummary {
   globalAccuracy: number
   f1Score: number
   falsePositiveRate: number
+  binaryFalsePositiveRate?: number | null
+  binaryDetectionRate?: number | null
+  bestRound?: number | null
   privacyStatus: string
   privacyDetail: string | null
   experimentId: string | null

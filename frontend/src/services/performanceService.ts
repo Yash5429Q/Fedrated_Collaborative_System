@@ -35,7 +35,7 @@ export const performanceService = {
       try {
         expMeta = await apiClient.get<ApiExperimentSummary>(`/experiments/${r.experiment_id}`)
       } catch {
-        // Fallback to latestExp if specific experiment lookup fails
+        expMeta = null
       }
     }
 

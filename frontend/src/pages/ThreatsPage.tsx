@@ -247,8 +247,8 @@ export default function ThreatsPage() {
       {/* ── Charts row: Timeline + Distribution ───────── */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <ChartCard
-          title="Threat Timeline (24h)"
-          subtitle="Detection volume by severity over the last 24 hours"
+          title="Prediction Alert Timeline"
+          subtitle="Recorded alerts grouped by date and hour"
           className="xl:col-span-2"
         >
           <ResponsiveContainer width="100%" height={240}>
@@ -278,7 +278,7 @@ export default function ThreatsPage() {
 
         <ChartCard
           title="Threat Distribution"
-          subtitle="Detections by attack category"
+          subtitle="Recorded predictions by attack category"
         >
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={distribution} layout="vertical" margin={{ left: 10 }}>
@@ -388,7 +388,7 @@ export default function ThreatsPage() {
           <span className="font-medium text-gray-200">Brute Force</span>,{' '}
           <span className="font-medium text-gray-200">Port Scan</span>, and{' '}
           <span className="font-medium text-gray-200">Malware</span>.
-          Live network packet capture (e.g., PCAP/promiscuous tap) is not implemented; recorded threat events reflect benchmark evaluation vectors and database security logs rather than raw live network traffic.
+          No live packet capture or blocking. Recorded alerts are model predictions, not verified incidents. Severity is a triage default, not a measured impact.
         </p>
       </div>
     </div>
@@ -484,9 +484,9 @@ function ThreatDetailPanel({
             <DetailField icon={ShieldAlert} label="Threat Type" value={threat.threatType} />
             <DetailField icon={Server} label="Organization" value={threat.organization} />
             <DetailField icon={Fingerprint} label="Confidence" value={`${threat.confidence.toFixed(1)}%`} />
-            <DetailField icon={Network} label="Source IP" value={threat.sourceIP} mono />
-            <DetailField icon={Network} label="Dest IP" value={threat.destinationIP} mono />
-            <DetailField icon={Info} label="Protocol" value={`${threat.protocol}:${threat.port}`} />
+            <DetailField icon={Network} label="Source IP" value={threat.sourceIP || 'Not supplied'} mono />
+            <DetailField icon={Network} label="Dest IP" value={threat.destinationIP || 'Not supplied'} mono />
+            <DetailField icon={Info} label="Protocol" value={threat.protocol ? `${threat.protocol}:${threat.port}` : 'Not supplied'} />
             <DetailField icon={Info} label="Model" value={threat.modelVersion} />
           </div>
 
@@ -497,6 +497,7 @@ function ThreatDetailPanel({
             </p>
             <div className="rounded-md border border-cyber-700/50 bg-cyber-800/30 p-3">
               <div className="space-y-1.5">
+                {Object.keys(threat.rawFeatures).length === 0 && <p className="text-xs text-gray-400">Raw features are not stored for prediction alerts.</p>}
                 {Object.entries(threat.rawFeatures).map(([key, val]) => (
                   <div key={key} className="flex items-center justify-between">
                     <span className="font-mono text-xs text-gray-500">

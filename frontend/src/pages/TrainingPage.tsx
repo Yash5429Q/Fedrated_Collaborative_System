@@ -78,7 +78,7 @@ const roundColumns: Column<TrainingRound>[] = [
     key: 'loss',
     header: 'FPR (%)',
     align: 'right',
-    render: (r) => <span className="font-mono text-gray-400">{r.globalLoss.toFixed(2)}%</span>,
+    render: (r) => <span className="font-mono text-gray-400">{r.globalLoss == null ? '—' : r.globalLoss.toFixed(4)}</span>,
   },
   {
     key: 'f1',
@@ -183,14 +183,14 @@ export default function TrainingPage() {
     return <ErrorState message={error ?? 'No data returned'} onRetry={refetch} detail="Ensure the backend is running on port 8000." />
 
   const { summary, clientStatuses, roundHistory, participation } = data
-  const reversedHistory = [...roundHistory].reverse()
+  const reversedHistory = [...roundHistory].sort((a, b) => b.round - a.round)
 
   return (
     <div className="space-y-6">
       {/* ── Summary stat cards ────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
-          label="Current Round"
+          label="Completed Rounds"
           value={`${summary.currentRound} / ${summary.totalRounds}`}
           icon={GitBranch}
           accent="text-accent-purple"
@@ -211,12 +211,11 @@ export default function TrainingPage() {
           bgAccent="bg-accent-blue/10"
         />
         <StatCard
-          label="Global Accuracy"
+          label="Selected Test Accuracy"
           value={`${summary.globalAccuracy}%`}
           icon={Target}
           accent="text-accent-green"
           bgAccent="bg-accent-green/10"
-          trend={{ value: '+0.6%', direction: 'up' }}
         />
         <StatCard
           label="Avg Round Time"
@@ -234,6 +233,7 @@ export default function TrainingPage() {
         />
       </div>
 
+      <p className="text-xs text-gray-400">Selected checkpoint round: {summary.bestRound ?? '—'}. Round charts show validation results; selected checkpoint metrics use the held-out test set.</p>
       {/* ── Federated Learning Workflow ────────────────── */}
       <FederatedWorkflow summary={summary} clientStatuses={clientStatuses} />
 
@@ -242,11 +242,11 @@ export default function TrainingPage() {
         {/* Accuracy & F1 vs Round */}
         <ChartCard
           title="Accuracy & F1 per Round"
-          subtitle="Global model performance across federated rounds"
+          subtitle="Global validation performance across federated rounds"
           className="xl:col-span-2"
         >
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={roundHistory}>
+            <LineChart data={[...roundHistory].sort((a, b) => a.round - b.round)}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,37,64,0.6)" />
               <XAxis
                 dataKey="round"
@@ -273,10 +273,10 @@ export default function TrainingPage() {
         {/* Loss vs Round */}
         <ChartCard
           title="Loss per Round"
-          subtitle="Global model loss convergence"
+          subtitle="Global validation loss across federated rounds"
         >
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={roundHistory}>
+            <LineChart data={[...roundHistory].sort((a, b) => a.round - b.round)}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,37,64,0.6)" />
               <XAxis
                 dataKey="round"
@@ -285,7 +285,7 @@ export default function TrainingPage() {
                 axisLine={{ stroke: '#1a2540' }}
               />
               <YAxis
-                domain={[0, 1]}
+                domain={[0, 'auto']}
                 tick={{ fill: '#6b7280', fontSize: 12 }}
                 tickLine={false}
                 axisLine={{ stroke: '#1a2540' }}
@@ -355,7 +355,7 @@ export default function TrainingPage() {
 
       {/* ── Mock data notice ──────────────────────────── */}
       <p className="pb-2 text-center text-xs text-gray-600">
-        Training data is simulated — will connect to Flower server and backend API in a later phase.
+        Recorded single-process federated experiment. No live distributed Flower session.
       </p>
     </div>
   )
@@ -418,7 +418,7 @@ function FederatedWorkflow({
         <WorkflowNode
           icon={Cpu}
           label="Local Training"
-          detail={`${summary.totalEpochsCompleted} total epochs — data stays local`}
+          detail={`${summary.totalEpochsCompleted} epochs per simulated client — training partitions stay separate`}
           color="text-accent-blue"
           bgColor="bg-accent-blue/10"
           borderColor="border-accent-blue/30"

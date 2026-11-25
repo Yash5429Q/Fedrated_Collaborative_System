@@ -19,7 +19,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  ReferenceLine,
 } from 'recharts'
 
 import { StatCard, ChartCard, LoadingSpinner, ErrorState } from '@/components/common'
@@ -89,7 +88,7 @@ export default function PerformancePage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="Federated vs Local Accuracy"
-          value={`+${S.accuracyGain.toFixed(1)}%`}
+          value={`${S.accuracyGain >= 0 ? '+' : ''}${S.accuracyGain.toFixed(2)} pp`}
           icon={TrendingUp}
           accent="text-accent-green"
           bgAccent="bg-accent-green/10"
@@ -97,15 +96,15 @@ export default function PerformancePage() {
         />
         <StatCard
           label="F1 Score Improvement"
-          value={`+${S.f1Gain.toFixed(1)}%`}
+          value={`${S.f1Gain >= 0 ? '+' : ''}${S.f1Gain.toFixed(2)} pp`}
           icon={Target}
           accent="text-accent-cyan"
           bgAccent="bg-accent-cyan/10"
           trend={{ value: `${S.federatedF1}% fed · ${S.localAvgF1}% local avg`, direction: 'up' }}
         />
         <StatCard
-          label="False-Positive Rate Reduction"
-          value={`−${S.fprReduction.toFixed(1)}%`}
+          label="Macro FPR Reduction"
+          value={`${S.fprReduction.toFixed(2)} pp`}
           icon={ShieldCheck}
           accent="text-accent-purple"
           bgAccent="bg-accent-purple/10"
@@ -125,7 +124,7 @@ export default function PerformancePage() {
             <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-400">
               LOCAL MODELS
             </span>
-            <span className="text-xs text-gray-500">Average across all 5 organizations</span>
+            <span className="text-xs text-gray-500">Independent models of experiment participants</span>
           </div>
           <div className="space-y-3">
             {metricComparisons.map((m) => (
@@ -134,7 +133,7 @@ export default function PerformancePage() {
                 label={m.label}
                 value={m.local}
                 unit={m.unit}
-                max={m.higherIsBetter ? 100 : 20}
+                max={100}
                 barColor="bg-amber-500/60"
                 higherIsBetter={m.higherIsBetter}
               />
@@ -148,7 +147,7 @@ export default function PerformancePage() {
             <span className="rounded bg-accent-cyan/15 px-2 py-0.5 text-xs font-semibold text-accent-cyan">
               FEDERATED MODEL
             </span>
-            <span className="text-xs text-gray-500">Global collaborative model (FedAvg)</span>
+            <span className="text-xs text-gray-500">Selected collaborative checkpoint</span>
           </div>
           <div className="space-y-3">
             {metricComparisons.map((m) => (
@@ -157,7 +156,7 @@ export default function PerformancePage() {
                 label={m.label}
                 value={m.federated}
                 unit={m.unit}
-                max={m.higherIsBetter ? 100 : 20}
+                max={100}
                 barColor="bg-accent-cyan/70"
                 higherIsBetter={m.higherIsBetter}
                 delta={m.federated - m.local}
@@ -188,7 +187,7 @@ export default function PerformancePage() {
               axisLine={{ stroke: '#1a2540' }}
             />
             <YAxis
-              domain={[50, 100]}
+              domain={[0, 100]}
               tick={{ fill: '#6b7280', fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: '#1a2540' }}
@@ -208,8 +207,8 @@ export default function PerformancePage() {
       <SectionTitle icon={BarChart3} title="Training-Round Performance" />
 
       <ChartCard
-        title="Accuracy — Local Avg vs Federated per Round"
-        subtitle="Per-round IID accuracy from CICIDS2017 experiment (10 rounds, FedAvg, α=0.1)"
+        title="Validation Accuracy — Client Avg vs Federated per Round"
+        subtitle="Per-round validation metrics; client average is not the independent local baseline."
       >
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={perfRounds}>
@@ -222,7 +221,7 @@ export default function PerformancePage() {
               label={{ value: 'Round', position: 'insideBottom', offset: -2, fill: '#6b7280', fontSize: 11 }}
             />
             <YAxis
-              domain={[55, 100]}
+              domain={[0, 100]}
               tick={{ fill: '#6b7280', fontSize: 12 }}
               tickLine={false}
               axisLine={{ stroke: '#1a2540' }}
@@ -230,7 +229,6 @@ export default function PerformancePage() {
             />
             <Tooltip {...TT} formatter={(v) => [`${Number(v).toFixed(1)}%`]} />
             <Legend wrapperStyle={{ fontSize: '12px', color: '#9ca3af' }} iconType="circle" iconSize={8} />
-            <ReferenceLine y={84.7} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Local plateau', fill: '#9ca3af', fontSize: 10 }} />
             <Line type="monotone" dataKey="localAvgAccuracy"   name="Local Avg Accuracy"   stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={{ r: 5 }} />
             <Line type="monotone" dataKey="federatedAccuracy"  name="Federated Accuracy"   stroke="#22d3ee" strokeWidth={2} dot={{ fill: '#22d3ee', r: 3 }} activeDot={{ r: 5 }} />
             <Line type="monotone" dataKey="localAvgF1"         name="Local Avg F1"         stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
@@ -274,7 +272,7 @@ export default function PerformancePage() {
           </table>
         </div>
         <div className="border-t border-cyber-700/30 px-4 py-2 text-xs text-gray-600">
-          Per-organization metrics from CICIDS2017 experiment (exp_20261005_071403_79eccaf1 · IID run).
+          Independent local models and the same global model evaluated on the common test set. Global results are not separate organization-specific tests.
         </div>
       </div>
 
@@ -297,7 +295,7 @@ export default function PerformancePage() {
                 tickLine={false}
                 axisLine={{ stroke: '#1a2540' }}
               />
-              <YAxis domain={[50, 100]} tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#1a2540' }} unit="%" />
+              <YAxis domain={[0, 100]} tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#1a2540' }} unit="%" />
               <Tooltip {...TT} formatter={(v) => [`${Number(v).toFixed(1)}%`]} />
               <Legend wrapperStyle={{ fontSize: '12px', color: '#9ca3af' }} iconType="circle" iconSize={8} />
               <Bar dataKey="localAvgAccuracy"    name="Local Avg"  fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={28} fillOpacity={0.75} />
@@ -309,7 +307,7 @@ export default function PerformancePage() {
         {/* Non-IID result cards */}
         <div className="rounded-lg border border-cyber-700/50 bg-cyber-900 p-5">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Robustness Score by Scenario
+            Accuracy Retention by Scenario
           </p>
           <div className="space-y-3">
             {nonIIDResults.map((r) => (
@@ -317,7 +315,7 @@ export default function PerformancePage() {
             ))}
           </div>
           <p className="mt-4 text-xs text-gray-600">
-            Robustness score = normalized federated accuracy under non-IID conditions (0–100 scale).
+            Accuracy retention = federated test accuracy / IID federated test accuracy × 100. Not a university rubric score.
           </p>
         </div>
       </div>
@@ -346,14 +344,13 @@ export default function PerformancePage() {
                   <td className="px-5 py-3 font-mono text-sm text-amber-400">{row.localAvg.toFixed(1)}{row.metric === 'FPR Reduction' ? '%' : '%'}</td>
                   <td className="px-5 py-3 font-mono text-sm text-accent-cyan">{row.federated.toFixed(1)}%</td>
                   <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-accent-green">
-                      <TrendingUp className="h-3 w-3" />
-                      +{row.improvement.toFixed(1)}%
+                    <span className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-gray-200">
+                      {row.improvement >= 0 ? '+' : ''}{row.improvement.toFixed(2)} pp
                     </span>
                   </td>
                   <td className="px-5 py-3">
-                    <span className="rounded-full bg-accent-green/10 px-2 py-0.5 font-mono text-xs font-medium text-accent-green">
-                      +{row.improvementPct.toFixed(1)}%
+                    <span className="rounded-full bg-cyber-800 px-2 py-0.5 font-mono text-xs font-medium text-gray-200">
+                      {row.improvementPct >= 0 ? '+' : ''}{row.improvementPct.toFixed(1)}%
                     </span>
                   </td>
                 </tr>
@@ -362,13 +359,13 @@ export default function PerformancePage() {
           </table>
         </div>
         <div className="border-t border-cyber-700/30 px-5 py-2 text-xs text-gray-600">
-          Δ values compare federated global model vs local model average · CICIDS2017 experiment.
+          Δ absolute uses percentage points; relative improvement uses percent. For FPR, lower is better.
         </div>
       </div>
 
       {/* ── Data source attribution ────────────────────── */}
       <p className="pb-2 text-center text-xs text-gray-600">
-        All metrics sourced from CICIDS2017 experiment · exp_20261005_071403_79eccaf1 · FedAvg · α=0.1
+        Source experiment: {experimentInfo.experimentId ?? 'not available'} · CICIDS2017
       </p>
     </div>
   )
@@ -430,7 +427,7 @@ function MetricRow({
           {delta !== undefined && (
             <span className={`flex items-center gap-0.5 text-xs font-medium ${isGood ? 'text-accent-green' : 'text-red-400'}`}>
               {isGood ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-              {delta > 0 ? '+' : ''}{delta.toFixed(1)}{unit === '%' ? '%' : ''}
+              {delta > 0 ? '+' : ''}{delta.toFixed(2)}{unit === '%' ? ' pp' : ''}
             </span>
           )}
           <span className="w-16 text-right font-mono text-sm font-semibold text-gray-200">
@@ -451,7 +448,7 @@ function MetricRow({
 /* ── Per-org table row ────────────────────────────────────── */
 
 function OrgPerfRow({ row }: { row: OrgPerformanceRow }) {
-  const gainColor = row.gain >= 12 ? 'text-accent-green' : row.gain >= 8 ? 'text-cyan-400' : 'text-amber-400'
+  const gainColor = row.gain < 0 ? 'text-red-400' : row.gain >= 12 ? 'text-accent-green' : row.gain >= 8 ? 'text-cyan-400' : 'text-amber-400'
   return (
     <tr className="hover:bg-cyber-800/20">
       <td className="px-4 py-3 text-sm font-medium text-gray-200">{row.orgName}</td>
@@ -464,7 +461,7 @@ function OrgPerfRow({ row }: { row: OrgPerformanceRow }) {
       <td className="px-4 py-3">
         <span className={`flex items-center gap-1 font-mono text-sm font-bold ${gainColor}`}>
           <TrendingUp className="h-3.5 w-3.5" />
-          +{row.gain.toFixed(1)}%
+          {row.gain >= 0 ? '+' : ''}{row.gain.toFixed(2)} pp
         </span>
       </td>
     </tr>
@@ -486,7 +483,7 @@ function NonIIDScoreRow({ result }: { result: NonIIDResult }) {
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs text-gray-400">{result.scenario}</span>
         <span className={`font-mono text-sm font-semibold ${textCls}`}>
-          {result.robustnessScore}/100
+          {result.robustnessScore}%
         </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-cyber-700">
@@ -513,17 +510,17 @@ function ConfusionMatrixViz({ matrix }: { matrix: ConfusionMatrix }) {
   })
 
   // Find max value for intensity scaling
-  const max = Math.max(...matrix.cells.map((c) => c.value))
+  const max = Math.max(1, ...matrix.cells.map((c) => c.value))
 
   return (
     <div className={`rounded-lg border p-5 ${isFed ? 'border-accent-cyan/20 bg-cyber-900 ring-1 ring-accent-cyan/10' : 'border-cyber-700/50 bg-cyber-900'}`}>
       <div className="mb-3 flex items-center gap-2">
         <span className={`rounded px-2 py-0.5 text-xs font-semibold ${isFed ? 'bg-accent-cyan/15 text-accent-cyan' : 'bg-amber-500/15 text-amber-400'}`}>
-          {isFed ? 'FEDERATED MODEL' : 'LOCAL MODEL (avg)'}
+          {isFed ? 'FEDERATED MODEL' : 'LOCAL MODELS (pooled)'}
         </span>
         <span className="text-xs text-gray-600">CICIDS2017</span>
       </div>
-      <p className="mb-4 text-xs text-gray-500">Rows = Actual class · Columns = Predicted class</p>
+      <p className="mb-4 text-xs text-gray-500">Rows = Actual class · Columns = Predicted class. {isFed ? 'One global model.' : 'Pooled predictions from independent local models on the same test set; totals are not directly comparable.'}</p>
 
       <div className="overflow-x-auto">
         <table className="w-full text-center">

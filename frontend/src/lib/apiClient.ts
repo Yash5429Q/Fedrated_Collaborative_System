@@ -40,9 +40,13 @@ export class ApiError extends Error {
 }
 
 
+export type AccessRole = 'viewer' | 'operator'
+let role: AccessRole | null = null
+export function getAccessRole() { return role }
+export function setAccessRole(value: AccessRole) { role = value }
 let accessToken = ''
 export function setAccessToken(token: string) { accessToken = token.trim() }
-export function clearAccessToken() { accessToken = '' }
+export function clearAccessToken() { accessToken = ''; role = null }
 
 /* ── Core request helper ──────────────────────────────────── */
 
@@ -75,6 +79,8 @@ async function request<T>(
     const msg =
       (typeof body === 'object' && body !== null && 'message' in body)
         ? String((body as { message: unknown }).message)
+        : (typeof body === 'object' && body !== null && 'detail' in body && typeof body.detail === 'string')
+        ? body.detail
         : `HTTP ${res.status} ${res.statusText}`
     throw new ApiError(res.status, msg, body)
   }

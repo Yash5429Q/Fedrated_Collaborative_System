@@ -25,6 +25,9 @@ export interface ApiDashboardResponse extends ApiBase {
   global_model_accuracy:number
   f1_score:             number
   false_positive_rate:  number
+  binary_false_positive_rate?: number | null
+  binary_attack_detection_rate?: number | null
+  best_round?: number | null
   privacy_status:       string
   privacy_detail:       string | null
   training_rounds:      ApiTrainingRound[]
@@ -76,15 +79,16 @@ export interface ApiTrainingRoundHistory {
   participating_clients:number
   total_clients:        number
   accuracy:             number
-  loss:                 number
+  loss:                 number | null
   f1:                   number
   duration_s:           number
   model_version:        string
-  started_at:           string
+  started_at:           string | null
   completed_at:         string | null
 }
 export interface ApiParticipation { round: number; participating: number; total: number }
 export interface ApiTrainingSummary {
+  best_round?: number | null
   current_round:          number
   total_rounds:           number
   global_model_version:   string

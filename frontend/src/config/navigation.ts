@@ -61,9 +61,9 @@ export const navigationItems: NavItem[] = [
     description: 'Validation and negative testing',
   },
   {
-    label: 'Real-Time Predict',
+    label: 'Flow Prediction',
     path: '/predict',
     icon: Crosshair,
-    description: 'Real-time threat detection inference (Phase 16)',
+    description: 'Classify submitted network flow features',
   },
 ]

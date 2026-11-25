@@ -174,7 +174,7 @@ export default function OrganizationsPage() {
 
       {/* ── Mock data notice ──────────────────────────── */}
       <p className="pb-2 text-center text-xs text-gray-600">
-        Organization data is simulated — will connect to backend API in a later phase.
+        Registered organizations and recorded simulated experiment participation from the backend. Registry status is not live connectivity.
       </p>
     </div>
   )
@@ -231,7 +231,7 @@ function OrganizationCard({
           <QuickStat label="Round" value={org.currentRound !== null ? `${org.currentRound}/${org.totalRounds ?? org.currentRound}` : '—'} />
           <QuickStat label="Model" value={org.localModel.version} />
           <QuickStat label="Accuracy" value={org.localModel.accuracy !== null ? `${org.localModel.accuracy}%` : '—'} />
-          <QuickStat label="Updated" value={org.lastUpdate} />
+          <QuickStat label="Registry timestamp" value={org.lastUpdate} />
         </div>
 
         {/* Expand chevron */}
@@ -456,7 +456,7 @@ function OrganizationDetail({ org }: { org: Organization }) {
             </div>
             <div className="space-y-2">
               <DetailRow label="Round" value={`${org.currentRound} / ${org.totalRounds}`} />
-              <DetailRow label="Last Update" value={org.lastUpdate} />
+              <DetailRow label="Historical registry timestamp" value={org.lastUpdate} />
               <DetailRow label="Network" value={org.networkLatency} />
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getAccessRole } from '@/lib/apiClient'
 import { predictService, type PredictResponse, type PredictHealthResponse } from '@/services/predictService'
 
 const CLASS_COLORS: Record<string, string> = {
@@ -23,29 +24,33 @@ export default function PredictPage() {
   const [health, setHealth] = useState<PredictHealthResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [recordAlert, setRecordAlert] = useState(false)
+  const [sampleClass, setSampleClass] = useState('Normal')
+  const [sampleNote, setSampleNote] = useState('')
+  const [sampleLoading, setSampleLoading] = useState(false)
+  const operator = getAccessRole() === 'operator' 
 
   useEffect(() => {
-    predictService.health().then(setHealth).catch(() => {})
+    predictService.health().then(setHealth).catch(e => setError(String(e)))
   }, [])
 
   const handlePredict = async () => {
+    if (!operator || loading) return
     setError(null)
     setResult(null)
     setLoading(true)
     try {
-      const features = featuresText
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map(Number)
+      const parts = featuresText.split(',').map(s => s.trim())
+      if (parts.some(s => !s)) throw new Error('Empty feature value')
+      const features = parts.map(Number)
 
-      if (features.some(isNaN)) {
+      if (features.some(v => !Number.isFinite(v))) {
         throw new Error('All values must be valid numbers separated by commas')
       }
       if (features.length !== 68) {
         throw new Error(`Expected 68 features, got ${features.length}`)
       }
-      const res = await predictService.predict(features)
+      const res = await predictService.predict(features, recordAlert)
       setResult(res)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Prediction failed'
@@ -55,18 +60,24 @@ export default function PredictPage() {
     }
   }
 
-  const handleSampleData = () => {
-    // Deterministic sample: 68 zeros (will predict something based on model)
-    const sample = Array(68).fill(0).map((_, i) => (Math.sin(i) * 0.5).toFixed(4)).join(', ')
-    setFeaturesText(sample)
+  const handleSampleData = async () => {
+    setSampleLoading(true); setError(null); setResult(null); setSampleNote(''); setFeaturesText(''); setRecordAlert(false)
+    try {
+      const data = await predictService.samples()
+      const sample = data.samples.find(s => s.label === sampleClass)
+      if (!sample) throw new Error('Sample unavailable')
+      setFeaturesText(sample.features.join(', '))
+      setSampleNote(`Held-out CICIDS2017 sample · seed ${data.seed} · test index ${sample.test_index} · reference label: ${sample.label}`)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Sample unavailable') }
+    finally { setSampleLoading(false) }
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Real-Time Threat Detection</h1>
+        <h1 className="text-2xl font-bold text-white">Network Flow Prediction</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Classify network flows using the trained ThreatNet model (Phase 16)
+          Classify submitted raw features using ThreatNet. No live packet capture or traffic blocking.
         </p>
       </div>
 
@@ -79,7 +90,7 @@ export default function PredictPage() {
               className={`inline-block h-3 w-3 rounded-full ${health.model_loaded ? 'bg-green-500' : 'bg-red-500'}`}
             />
             <span className="text-sm text-slate-300">
-              {health.model_loaded ? 'Model Loaded' : 'Model Not Loaded'}
+              {health.model_loaded && health.normalization_loaded ? 'Ready for inference' : 'Inference unavailable'}
             </span>
             {health.model_loaded && health.experiment_id && (
               <span className="text-xs text-slate-500 ml-2">
@@ -101,23 +112,33 @@ export default function PredictPage() {
           <h2 className="text-sm font-semibold text-slate-300">
             Network Flow Features (68 values, comma-separated)
           </h2>
+          <div className="flex gap-2 items-center flex-wrap">
+          <select aria-label="Benchmark class" value={sampleClass} disabled={!operator || loading || sampleLoading} onChange={e => setSampleClass(e.target.value)} className="bg-slate-900 text-slate-200 rounded p-2 text-sm">
+            {Object.keys(CLASS_COLORS).map(c => <option key={c}>{c}</option>)}
+          </select>
           <button
+            disabled={!operator || loading || sampleLoading}
             onClick={handleSampleData}
             className="text-xs px-3 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition"
           >
-            Load Sample Data
+            {sampleLoading ? 'Loading…' : 'Load held-out sample'}
           </button>
+          </div>
         </div>
         <textarea
           value={featuresText}
-          onChange={(e) => setFeaturesText(e.target.value)}
+          disabled={!operator || loading || sampleLoading}
+          onChange={(e) => { setFeaturesText(e.target.value); setSampleNote(''); setResult(null) }}
           rows={4}
           className="w-full rounded bg-slate-900 border border-slate-600 text-slate-200 text-xs font-mono p-3 focus:outline-none focus:border-blue-500"
           placeholder="Enter 68 comma-separated numerical values..."
         />
+        {sampleNote && <p className="text-xs text-cyan-300">{sampleNote}. Reference label is not sent to the classifier.</p>}
+        {!operator && <p className="text-sm text-amber-300">Viewer access is read-only. Sign in as an operator to classify flows.</p>}
+        <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={recordAlert} disabled={!operator || loading || sampleLoading} onChange={e => setRecordAlert(e.target.checked)} /> Record a predicted attack alert (no raw features stored)</label>
         <button
           onClick={handlePredict}
-          disabled={loading || !featuresText.trim()}
+          disabled={!operator || loading || sampleLoading || !health?.model_loaded || !health?.normalization_loaded || !featuresText.trim()}
           className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
         >
           {loading ? 'Classifying...' : 'Classify Flow'}
@@ -141,10 +162,16 @@ export default function PredictPage() {
               {result.prediction.label}
             </p>
             <p className="text-sm text-slate-400 mt-1">
-              Confidence: {(result.prediction.confidence * 100).toFixed(1)}%
+              Selected class probability: {(result.prediction.confidence * 100).toFixed(1)}%
             </p>
           </div>
 
+          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-sm text-slate-300 space-y-2">
+            <h3 className="font-semibold text-white">Decision and alert recording</h3>
+            {result.attack_score != null && <p>Combined attack probability: {(result.attack_score * 100).toFixed(2)}%{result.attack_threshold != null && ` · Attack threshold: ${(result.attack_threshold * 100).toFixed(0)}%`}</p>}
+            <p>Decision rule: {result.decision_rule ?? 'Not reported'}. The attack gate can change an attack argmax to Normal when the combined attack probability is below the threshold. Scores are not calibrated certainty.</p>
+            <p>{result.alert_id ? `Saved prediction alert: ${result.alert_id}` : 'No alert saved.'} Predictions are not confirmed security incidents.</p>
+          </div>
           {/* Probability Distribution */}
           <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
             <h3 className="text-sm font-semibold text-slate-300 mb-3">
@@ -159,7 +186,7 @@ export default function PredictPage() {
                     <div className="flex-1 h-4 bg-slate-900 rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${CLASS_COLORS[cls] || 'bg-blue-500'}`}
-                        style={{ width: `${Math.max(prob * 100, 0.5)}%` }}
+                        style={{ width: `${prob * 100}%` }}
                       />
                     </div>
                     <span className="text-xs text-slate-300 w-16 text-right">

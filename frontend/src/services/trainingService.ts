@@ -25,6 +25,7 @@ export const trainingService = {
     const localEpochsPerRound = 3  // matches experiment_metadata.local_epochs
 
     const summary: TrainingPageSummary = {
+      bestRound: t.summary.best_round,
       currentRound:         t.summary.current_round,
       totalRounds:          t.summary.total_rounds,
       trainingPhase:        t.summary.training_status === 'completed' ? 'complete' : 'local_training',

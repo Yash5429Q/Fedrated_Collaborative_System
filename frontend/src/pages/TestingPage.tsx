@@ -114,7 +114,7 @@ export default function TestingPage() {
             <ExecLegendItem state="executed" />
           </div>
           <p className="pt-1 text-gray-300 leading-relaxed">
-            <span className="font-semibold text-emerald-400">Automated Backend Regression Suite:</span> 199 automated unit, repository, and service tests pass continuously in pytest with SQLite transactions and isolated mocks.
+            <span className="font-semibold text-emerald-400">Automated Backend Regression Suite:</span> Last verified local regression run: 248 passed, 2 warnings (before this frontend update). This is recorded evidence, not a live test runner.
           </p>
           <p className="text-gray-400 leading-relaxed">
             <span className="font-semibold text-gray-200">System Test Matrix Scope:</span> The 12 acceptance test cases cataloged below represent the formal system and integration test specifications. Individual test items maintain their exact database execution states: <span className="text-gray-300 font-medium">Configured</span> (defined specifications awaiting live execution), <span className="text-amber-400 font-medium">Mock Run</span> (tested with synthetic benchmark data), and <span className="text-accent-cyan font-medium">Executed</span> (verified against live runtime endpoints). Browser end-to-end user flows and live network tap evaluations remain separate from backend automated passes.
@@ -208,7 +208,7 @@ export default function TestingPage() {
       {/* ── Test results table ────────────────────────── */}
       <ChartCard
         title="Test Results"
-        subtitle="Click any row to expand detail. Execution state shows whether each test was actually run."
+        subtitle="Database test catalogue; not the automated pytest regression count. Open each row for its recorded execution state."
       >
         <div className="divide-y divide-cyber-700/30">
           {/* Header */}
@@ -246,7 +246,7 @@ export default function TestingPage() {
 
       {/* ── Mock data notice ──────────────────────────── */}
       <p className="pb-2 text-center text-xs text-gray-600">
-        All test data is mock/configured only — no tests have been executed against the live system.
+        The database catalogue retains its recorded states. Separate live API and browser checks verified prediction persistence and operator/viewer access; full university acceptance and independent validation remain pending.
       </p>
     </div>
   )

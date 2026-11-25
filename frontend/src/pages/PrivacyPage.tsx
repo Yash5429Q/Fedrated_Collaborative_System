@@ -153,11 +153,11 @@ export default function PrivacyPage() {
             Privacy & Security Architecture
           </p>
           <p className="mt-0.5 text-xs text-gray-300">
-            Raw training data remains strictly local on client organization devices during federated training; only parameter updates are transmitted. Implemented update-level defenses include <span className="text-gray-100 font-medium">L2 update clipping (clip_norm=1.0)</span>, <span className="text-gray-100 font-medium">Gaussian noise injection (noise_std=0.1)</span>, and <span className="text-gray-100 font-medium">server-side validation (NaN/Inf & structural integrity checks)</span>.
+            In the single-process simulation, training partitions are kept separate and aggregation receives model parameters. Implemented mechanisms include L2 update clipping, experimental Gaussian noise and structural/finite-value validation. Shared training-only preprocessing statistics and unprotected non-learnable buffers remain limitations.
           </p>
           <p className="mt-1 text-xs text-gray-400">
             <span className="font-medium text-accent-amber">Limitations: </span>
-            <span className="font-medium text-gray-300">Secure Aggregation is not implemented</span> (the central server processes individual updates directly). Client authentication (such as mTLS) is not implemented. Although Gaussian noise is injected, formal end-to-end (ε,δ)-differential privacy guarantees cannot be guaranteed without full composition accounting (per-round ε≈48.45 from experiment metadata).
+            <span className="font-medium text-gray-300">Secure Aggregation is not implemented</span> (the central server processes individual updates directly). Client authentication (such as mTLS) is not implemented. Formal differential privacy is not established: seeded noise, adjacency, released buffers and logs, and composition have not been validated. Local API bearer-token access is implemented but is not distributed-client authentication.
           </p>
         </div>
       </div>
@@ -192,7 +192,7 @@ export default function PrivacyPage() {
           icon={ShieldAlert}
           accent="text-orange-400"
           bgAccent="bg-orange-400/10"
-          trend={{ value: `${S.unauthorizedAttemptsBlocked} blocked`, direction: 'up' }}
+          trend={{ value: `${S.unauthorizedAttemptsBlocked} recorded blocked events`, direction: 'flat' }}
         />
       </div>
 
@@ -217,7 +217,7 @@ export default function PrivacyPage() {
           SECTION 3 — Model update status per org
           ═══════════════════════════════════════════════ */}
       <div>
-        <SectionTitle icon={Server} title={`Model Update Status — Round ${mockOrgUpdateStatuses[0]?.round ?? 10}`} />
+        <SectionTitle icon={Server} title={`Model Update Status — Round ${mockOrgUpdateStatuses[0]?.round ?? '—'}`} />
         <div className="mt-4 space-y-2">
           {mockOrgUpdateStatuses.map((row) => (
             <OrgUpdateRow key={row.orgId} row={row} />
@@ -254,7 +254,7 @@ export default function PrivacyPage() {
         <SectionTitle icon={ShieldAlert} title="Security Events" />
         <ChartCard
           title="Recent Security Events"
-          subtitle="System-level and organization-level security notifications from active security logs"
+          subtitle="Recorded security events; historical demonstration events excluded"
           className="mt-4"
         >
           <DataTable
@@ -491,24 +491,24 @@ function OrgUpdateRow({ row }: { row: OrgUpdateStatus }) {
 
 const validationChecks: { label: string; state: 'pass' | 'planned' | 'fail'; detail: string }[] = [
   {
-    label:  'Raw data does not leave organization boundary',
+    label:  'Separate training partitions in simulation',
     state:  'pass',
-    detail: 'Verified by FL architecture — only model updates are sent via Flower client.',
+    detail: 'Single-process simulation; no verified physical network or organization boundary.',
   },
   {
     label:  'Model updates contain no raw feature vectors',
     state:  'pass',
-    detail: 'Flower client transmits parameter diffs only. Confirmed by code inspection.',
+    detail: 'Aggregation receives model parameters, not raw feature vectors; shared preprocessing statistics and buffers remain limitations.',
   },
   {
     label:  'Model update norm validation',
     state:  'pass',
-    detail: 'Update clipping (L2 norm bound ≤ 1.0) and structural validation (NaN/Inf checks) are enforced on client updates.',
+    detail: 'Learnable updates are clipped; structural and finite-value validation is implemented. This is not a Byzantine-resilience guarantee.',
   },
   {
-    label:  'Differential privacy noise injection',
+    label:  'Experimental Gaussian noise injection',
     state:  'pass',
-    detail: 'Gaussian noise addition (noise_std=0.1) is applied to updates during training. Formal composition accounting remains limited.',
+    detail: 'Gaussian noise is applied to learnable updates; formal DP is not established. See experiment configuration above.',
   },
   {
     label:  'Secure aggregation (server cannot see individual updates)',

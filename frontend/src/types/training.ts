@@ -41,13 +41,13 @@ export interface ClientRoundStatus {
 export interface TrainingRound {
   round: number
   status: RoundStatus
-  startedAt: string
+  startedAt: string | null
   completedAt: string | null
   duration: string
   participatingClients: number
   totalClients: number
   globalAccuracy: number
-  globalLoss: number
+  globalLoss: number | null
   globalF1: number
   globalModelVersion: string
   aggregationMethod: string
@@ -64,6 +64,7 @@ export interface ClientParticipation {
 /* ── Training Page Summary ────────────────────────────────── */
 
 export interface TrainingPageSummary {
+  bestRound?: number | null
   currentRound: number
   totalRounds: number
   trainingPhase: TrainingPhase
