@@ -9,6 +9,9 @@ Validates that:
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -18,6 +21,13 @@ from app.database.session import Base
 from app.database.seed import seed_experiments_if_empty, seed_if_empty
 from app.models.metric import Metric
 from app.repositories.metric_repo import MetricRepo
+
+# Read the expected experiment ID from experiment_results.json so the tests
+# stay correct after new experiment runs without manual edits.
+_RESULTS_PATH = Path(__file__).resolve().parent.parent / "experiment_results.json"
+with open(_RESULTS_PATH, "r", encoding="utf-8") as _f:
+    _RESULTS_DATA = json.load(_f)
+EXPECTED_EXP_ID: str = _RESULTS_DATA["experiment_id"]
 
 
 @pytest.fixture
@@ -57,7 +67,7 @@ async def test_seed_experiments_success(async_session: AsyncSession):
 
     # Verify experiment ID is populated
     latest_id = await repo.get_latest_experiment_id()
-    assert latest_id == "exp_20261013_042208_6fb2147a"
+    assert latest_id == EXPECTED_EXP_ID
 
     # Verify metadata fields via get_experiment_metadata
     metadata = await repo.get_experiment_metadata(latest_id)
@@ -165,7 +175,7 @@ async def test_seed_preserves_existing_custom_experiment(async_session: AsyncSes
 
     # Verify that the JSON file experiment was not inserted
     default_records = await async_session.execute(
-        select(Metric).where(Metric.model_type.like("exp_20261013_042208_6fb2147a%"))
+        select(Metric).where(Metric.model_type.like(f"{EXPECTED_EXP_ID}%"))
     )
     assert len(default_records.scalars().all()) == 0
 
@@ -185,4 +195,4 @@ async def test_seed_with_demo_data_coexists(async_session: AsyncSession):
     await seed_experiments_if_empty(async_session)
 
     # Now experiment metadata exists alongside demo data
-    assert await repo.get_latest_experiment_id() == "exp_20261013_042208_6fb2147a"
+    assert await repo.get_latest_experiment_id() == EXPECTED_EXP_ID

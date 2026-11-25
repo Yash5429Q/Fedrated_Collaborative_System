@@ -4,23 +4,43 @@ Supports SQLite (development) and PostgreSQL (production) via DATABASE_URL.
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
 
-def normalize_database_url(url: str) -> str:
-    """Ensure PostgreSQL URLs use the asyncpg driver for async SQLAlchemy.
+# Directory that contains the ``backend/`` package tree.
+# Used to resolve relative SQLite paths so the database file is always
+# created inside ``backend/`` regardless of the working directory.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
-    Render and other cloud platforms provide database URLs with postgres:// or
-    postgresql:// schemes. SQLAlchemy's async engine requires postgresql+asyncpg://.
-    SQLite and other schemes are preserved without changes.
+
+def normalize_database_url(url: str) -> str:
+    """Normalise a database URL for async SQLAlchemy.
+
+    * PostgreSQL ``postgres://`` / ``postgresql://`` → ``postgresql+asyncpg://``
+    * SQLite relative paths (``sqlite+aiosqlite:///./cyber20.db``) are resolved
+      relative to the ``backend/`` directory so the same ``.db`` file is used
+      regardless of the working directory the process was started from.
+    * All other schemes are returned unchanged.
     """
     clean_url = url.strip()
     if clean_url.startswith("postgres://"):
         return clean_url.replace("postgres://", "postgresql+asyncpg://", 1)
     if clean_url.startswith("postgresql://"):
         return clean_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    # Resolve relative SQLite paths to backend/ directory.
+    # Matches  sqlite+aiosqlite:///./cyber20.db  or  sqlite:///./data.db  etc.
+    m = re.match(r"^(sqlite(?:\+\w+)?:///)(\./.+)$", clean_url)
+    if m:
+        prefix, rel_path = m.group(1), m.group(2)
+        abs_path = (_BACKEND_DIR / rel_path).resolve()
+        return f"{prefix}{abs_path.as_posix()}"
+
     return clean_url
 
 

@@ -62,21 +62,31 @@ pnpm-debug.log*
 # SQLite databases are auto-created and seeded on application startup.
 # ------------------------------------------------------------------------------
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 cyber20.db
 backend/cyber20.db
 
 # ------------------------------------------------------------------------------
-# 6. Raw Datasets & Nested Dataset Repository
+# 6. Raw Datasets & Large Archives
 # Raw CIC-IDS2017 CSV files (843 MB total) exceed GitHub file limits.
-# data/CIC-IDS2017 is an external Git clone from HuggingFace.
+# data/CIC-IDS2017 was originally a Git LFS clone from HuggingFace;
+# the nested .git was removed (data files are intact on disk).
 # ------------------------------------------------------------------------------
 data/CIC-IDS2017/
 data/*.csv
 data/**/*.csv
+data.zip
 *.pcap
 *.pcap_ISCX.csv
+
+# ------------------------------------------------------------------------------
+# 6b. Archive folder (backups, raw zip files, old DB copies)
+# ------------------------------------------------------------------------------
+archive/
 
 # ------------------------------------------------------------------------------
 # 7. Machine Learning Artifacts & Checkpoints

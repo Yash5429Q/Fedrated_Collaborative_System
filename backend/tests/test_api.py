@@ -5,12 +5,19 @@ Run with:  cd backend && pytest tests/ -v --asyncio-mode=auto
 All tests assert that real CICIDS2017 experiment data is returned,
 not seeded/synthetic values.
 """
+import json
+from pathlib import Path
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
 
-LATEST_EXP_ID = "exp_20261013_042208_6fb2147a"
+# Read the experiment ID dynamically from experiment_results.json
+# so tests stay correct after new experiment runs.
+_RESULTS_PATH = Path(__file__).resolve().parent.parent / "experiment_results.json"
+with open(_RESULTS_PATH, "r", encoding="utf-8") as _f:
+    LATEST_EXP_ID: str = json.load(_f)["experiment_id"]
 EXPECTED_IID_ACCURACY = 78.94   # confirmed from DB
 EXPECTED_IID_F1 = 73.84         # confirmed from DB
 EXPECTED_IID_FPR = 5.37         # confirmed from DB

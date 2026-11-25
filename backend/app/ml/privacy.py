@@ -71,6 +71,11 @@ class PrivacyConfig:
         Uses the Gaussian mechanism bound:
           epsilon = sqrt(2 * ln(1.25/delta)) * (sensitivity / noise_std)
         where sensitivity = clip_norm (L2 sensitivity after clipping).
+
+        NOTE: This is a **per-round** bound only. It does NOT account for
+        multi-round composition (e.g. advanced composition, RDP, or zCDP).
+        For a formal privacy statement over T rounds, use a composition
+        theorem or tools like Opacus / Google's dp-accounting library.
         """
         if self.noise_std <= 0:
             return float("inf")
@@ -85,6 +90,12 @@ class PrivacyConfig:
             "noise_std": round(self.noise_std, 6),
             "epsilon_per_round": round(self.epsilon(), 4),
             "delta": 1e-5,
+            "dp_accounting": "per_round_gaussian_only",
+            "dp_accounting_note": (
+                "Epsilon is computed per-round via the Gaussian mechanism. "
+                "No multi-round composition (advanced composition, RDP, zCDP) "
+                "is applied. For T rounds, a naive bound is T * epsilon."
+            ),
             "validation_enabled": self.enable_validation,
             "max_update_norm": self.max_update_norm,
             "max_param_value": self.max_param_value,

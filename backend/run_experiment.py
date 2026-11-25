@@ -78,6 +78,7 @@ from app.ml.privacy import (
     DEFAULT_PRIVACY_CONFIG,
     PrivacyConfig,
     apply_privacy,
+    compute_update_norm,
     privacy_logger,
     validate_update,
 )
@@ -88,8 +89,18 @@ from app.ml.privacy import (
 def _fedavg_aggregate(
     client_params: List[List[np.ndarray]],
     client_sizes: List[int],
+    previous_global: List[np.ndarray] | None = None,
+    momentum: float = 0.0,
 ) -> List[np.ndarray]:
-    """Weighted average of model parameters (FedAvg)."""
+    """Weighted average of model parameters (FedAvg) with optional momentum.
+
+    When momentum > 0 and previous_global is provided, the aggregated
+    result is blended with the previous global model:
+        new = (1 - momentum) * aggregated + momentum * previous_global
+
+    This smooths round-to-round oscillations without changing the
+    underlying FedAvg semantics (momentum=0 is standard FedAvg).
+    """
     total = sum(client_sizes)
     num_layers = len(client_params[0])
     aggregated = []
@@ -100,6 +111,13 @@ def _fedavg_aggregate(
             weight = client_sizes[client_idx] / total
             weighted_sum += client_params[client_idx][layer_idx].astype(np.float64) * weight
         aggregated.append(weighted_sum.astype(np.float32))
+
+    # Apply server-side momentum (EMA blending with previous global)
+    if momentum > 0.0 and previous_global is not None:
+        aggregated = [
+            ((1.0 - momentum) * a.astype(np.float64) + momentum * p.astype(np.float64)).astype(np.float32)
+            for a, p in zip(aggregated, previous_global)
+        ]
 
     return aggregated
 
@@ -119,6 +137,8 @@ def run_experiment(
     global_norm_mean: np.ndarray | None = None,
     global_norm_std: np.ndarray | None = None,
     global_class_weights: np.ndarray | None = None,
+    momentum: float = 0.0,
+    norm_guard_multiplier: float = 0.0,
 ) -> dict:
     """
     Run one federated learning experiment (IID or Non-IID).
@@ -141,6 +161,7 @@ def run_experiment(
     logger.info(f"  Privacy: clipping={privacy_config.enable_clipping} (norm={privacy_config.clip_norm}), "
                 f"dp_noise={privacy_config.enable_dp_noise} (sigma={privacy_config.noise_std:.4f}, "
                 f"eps={privacy_config.epsilon():.2f}), validation={privacy_config.enable_validation}")
+    logger.info(f"  Momentum: {momentum}, Norm guard multiplier: {norm_guard_multiplier}")
 
     # Load data partitions
     partitions = load_all_partitions(
@@ -273,9 +294,40 @@ def run_experiment(
                 "validation_passed": validation.valid,
             })
 
-        # Aggregate (FedAvg)
+        # ── Norm guard: flag / down-weight outlier updates ────
+        if norm_guard_multiplier > 0.0 and len(client_params) > 1:
+            update_norms = []
+            for cp in client_params:
+                delta = [cp_l - gp_l for cp_l, gp_l in zip(cp, global_params_snapshot)]
+                update_norms.append(compute_update_norm(delta, learnable_mask))
+            median_norm = float(np.median(update_norms))
+            threshold = median_norm * norm_guard_multiplier
+            guarded_params = []
+            guarded_sizes = []
+            for idx, (cp, cs, un) in enumerate(zip(client_params, client_sizes, update_norms)):
+                if un > threshold:
+                    # Down-weight: scale the update to the threshold, keep the client
+                    scale = threshold / un
+                    capped = [
+                        (gp_l + (cp_l - gp_l) * scale).astype(np.float32)
+                        for cp_l, gp_l in zip(cp, global_params_snapshot)
+                    ]
+                    guarded_params.append(capped)
+                    guarded_sizes.append(cs)
+                    logger.info(f"    Norm guard: client {idx} norm {un:.4f} > threshold {threshold:.4f}, scaled to {threshold:.4f}")
+                else:
+                    guarded_params.append(cp)
+                    guarded_sizes.append(cs)
+            client_params = guarded_params
+            client_sizes = guarded_sizes
+
+        # Aggregate (FedAvg + optional momentum)
         if client_params:
-            aggregated = _fedavg_aggregate(client_params, client_sizes)
+            aggregated = _fedavg_aggregate(
+                client_params, client_sizes,
+                previous_global=global_params_snapshot,
+                momentum=momentum,
+            )
             set_parameters(global_model, aggregated)
         else:
             logger.warning(f"  Round {rnd}: ALL updates rejected, skipping aggregation")
@@ -371,6 +423,8 @@ def run_experiment(
         "lr": lr,
         "weight_decay": weight_decay,
         "use_class_weights": use_class_weights,
+        "momentum": momentum,
+        "norm_guard_multiplier": norm_guard_multiplier,
         "best_round": best_round,
         "partition_stats": [s.to_dict() for s in partition_stats],
         "round_metrics": round_metrics,
@@ -695,6 +749,12 @@ def _save_checkpoint(
         "lr": args.lr,
         "weight_decay": args.weight_decay,
         "class_weighted": args.class_weights,
+        "momentum": getattr(args, 'momentum', 0.0),
+        "norm_guard_multiplier": getattr(args, 'norm_guard', 0.0),
+        "privacy_clipping_enabled": getattr(args, 'enable_clipping', True),
+        "privacy_clip_norm": getattr(args, 'clip_norm', 5.0),
+        "privacy_dp_noise_enabled": getattr(args, 'enable_dp_noise', True),
+        "privacy_noise_multiplier": getattr(args, 'noise_multiplier', 0.1),
         "mode": mode,
         "best_round": result.get("best_round", args.rounds),
         "final_accuracy": result["final_global"]["accuracy"],
@@ -728,14 +788,45 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="Weight decay")
     parser.add_argument("--no-class-weights", dest="class_weights", action="store_false",
                         help="Disable class-weighted loss")
-    parser.set_defaults(class_weights=True)
+    # Privacy flags
+    parser.add_argument("--clip-norm", type=float, default=5.0,
+                        help="L2 clip norm for update clipping (default: 5.0)")
+    parser.add_argument("--noise-multiplier", type=float, default=0.1,
+                        help="Noise multiplier for DP (noise_std = multiplier * clip_norm, default: 0.1)")
+    parser.add_argument("--no-clipping", dest="enable_clipping", action="store_false",
+                        help="Disable update clipping")
+    parser.add_argument("--no-dp-noise", dest="enable_dp_noise", action="store_false",
+                        help="Disable DP noise addition")
+    parser.add_argument("--no-validation", dest="enable_validation", action="store_false",
+                        help="Disable server-side update validation")
+    parser.add_argument("--max-update-norm", type=float, default=200.0,
+                        help="Max update norm threshold for server validation (default: 200.0)")
+    # Stabilization flags
+    parser.add_argument("--momentum", type=float, default=0.0,
+                        help="Server-side momentum (EMA blending weight for previous global model, 0=off, suggested: 0.2)")
+    parser.add_argument("--norm-guard", type=float, default=0.0, dest="norm_guard",
+                        help="Norm guard multiplier: cap client updates whose norm exceeds median*multiplier (0=off, suggested: 3.0)")
+    parser.set_defaults(class_weights=True, enable_clipping=True, enable_dp_noise=True, enable_validation=True)
     args = parser.parse_args()
+
+    # Build privacy config from CLI flags
+    privacy_config = PrivacyConfig(
+        enable_clipping=args.enable_clipping,
+        clip_norm=args.clip_norm,
+        enable_dp_noise=args.enable_dp_noise,
+        noise_multiplier=args.noise_multiplier,
+        enable_validation=args.enable_validation,
+        max_update_norm=args.max_update_norm,
+    )
 
     experiment_id = f"exp_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     logger.info(f"Experiment ID: {experiment_id}")
     logger.info("Running IID vs Non-IID comparison experiments")
     logger.info(f"  Rounds: {args.rounds}, Alpha: {args.alpha}, Samples: {args.samples or 'all'}")
     logger.info(f"  LR: {args.lr}, Weight decay: {args.weight_decay}, Class weights: {args.class_weights}")
+    logger.info(f"  Privacy: clipping={args.enable_clipping} (norm={args.clip_norm}), "
+                f"dp_noise={args.enable_dp_noise} (multiplier={args.noise_multiplier})")
+    logger.info(f"  Momentum: {args.momentum}, Norm guard: {args.norm_guard}")
 
     # Set global seed
     torch.manual_seed(args.seed)
@@ -752,6 +843,9 @@ def main() -> None:
         lr=args.lr,
         weight_decay=args.weight_decay,
         use_class_weights=args.class_weights,
+        privacy_config=privacy_config,
+        momentum=args.momentum,
+        norm_guard_multiplier=args.norm_guard,
     )
 
     # Run Non-IID experiment
@@ -765,6 +859,9 @@ def main() -> None:
         lr=args.lr,
         weight_decay=args.weight_decay,
         use_class_weights=args.class_weights,
+        privacy_config=privacy_config,
+        momentum=args.momentum,
+        norm_guard_multiplier=args.norm_guard,
     )
 
     # Select best model: compare IID vs Non-IID final macro-F1
@@ -847,6 +944,12 @@ def main() -> None:
         "samples": args.samples,
         "seed": args.seed,
         "epochs": args.epochs,
+        "momentum": args.momentum,
+        "norm_guard": args.norm_guard,
+        "clip_norm": args.clip_norm,
+        "noise_multiplier": args.noise_multiplier,
+        "enable_clipping": args.enable_clipping,
+        "enable_dp_noise": args.enable_dp_noise,
     }
     logger.info("Persisting results to database...")
     loop = asyncio.new_event_loop()
