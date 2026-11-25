@@ -229,9 +229,9 @@ export default function PerformancePage() {
             />
             <Tooltip {...TT} formatter={(v) => [`${Number(v).toFixed(1)}%`]} />
             <Legend wrapperStyle={{ fontSize: '12px', color: '#9ca3af' }} iconType="circle" iconSize={8} />
-            <Line type="monotone" dataKey="localAvgAccuracy"   name="Local Avg Accuracy"   stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="localAvgAccuracy"   name="Client Avg Accuracy"   stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={{ r: 5 }} />
             <Line type="monotone" dataKey="federatedAccuracy"  name="Federated Accuracy"   stroke="#22d3ee" strokeWidth={2} dot={{ fill: '#22d3ee', r: 3 }} activeDot={{ r: 5 }} />
-            <Line type="monotone" dataKey="localAvgF1"         name="Local Avg F1"         stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
+            <Line type="monotone" dataKey="localAvgF1"         name="Client Avg F1"         stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
             <Line type="monotone" dataKey="federatedF1"        name="Federated F1"         stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -243,8 +243,8 @@ export default function PerformancePage() {
       <SectionTitle icon={Target} title="Confusion Matrix Comparison" />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ConfusionMatrixViz matrix={localConfusionMatrix} />
-        <ConfusionMatrixViz matrix={federatedConfusionMatrix} />
+        <ConfusionMatrixViz matrix={localConfusionMatrix} isFed={false} />
+        <ConfusionMatrixViz matrix={federatedConfusionMatrix} isFed />
       </div>
 
       {/* ═══════════════════════════════════════════════
@@ -498,8 +498,7 @@ function NonIIDScoreRow({ result }: { result: NonIIDResult }) {
 
 /* ── Confusion matrix visualization ──────────────────────── */
 
-function ConfusionMatrixViz({ matrix }: { matrix: ConfusionMatrix }) {
-  const isFed = matrix.modelType === 'federated'
+function ConfusionMatrixViz({ matrix, isFed }: { matrix: ConfusionMatrix; isFed: boolean }) {
   const labels = matrix.labels
 
   // Build a 2D lookup: rows = actual, cols = predicted
@@ -520,7 +519,7 @@ function ConfusionMatrixViz({ matrix }: { matrix: ConfusionMatrix }) {
         </span>
         <span className="text-xs text-gray-600">CICIDS2017</span>
       </div>
-      <p className="mb-4 text-xs text-gray-500">Rows = Actual class · Columns = Predicted class. {isFed ? 'One global model.' : 'Pooled predictions from independent local models on the same test set; totals are not directly comparable.'}</p>
+      <p className="mb-4 text-xs text-gray-500">Rows = Actual class · Columns = Predicted class. {isFed ? 'One global model on the common held-out test set.' : 'Pooled predictions from independent local models on the same test set; totals are not directly comparable.'}</p>
 
       <div className="overflow-x-auto">
         <table className="w-full text-center">

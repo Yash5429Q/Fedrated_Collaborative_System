@@ -114,7 +114,7 @@ export default function TestingPage() {
             <ExecLegendItem state="executed" />
           </div>
           <p className="pt-1 text-gray-300 leading-relaxed">
-            <span className="font-semibold text-emerald-400">Automated Backend Regression Suite:</span> Last verified local regression run: 248 passed, 2 warnings (before this frontend update). This is recorded evidence, not a live test runner.
+            <span className="font-semibold text-emerald-400">Automated Backend Regression Suite:</span> Last verified local regression run: 250 passed, 2 warnings (26 Nov 2026, 33.64 seconds). This is recorded evidence, not a live test runner.
           </p>
           <p className="text-gray-400 leading-relaxed">
             <span className="font-semibold text-gray-200">System Test Matrix Scope:</span> The 12 acceptance test cases cataloged below represent the formal system and integration test specifications. Individual test items maintain their exact database execution states: <span className="text-gray-300 font-medium">Configured</span> (defined specifications awaiting live execution), <span className="text-amber-400 font-medium">Mock Run</span> (tested with synthetic benchmark data), and <span className="text-accent-cyan font-medium">Executed</span> (verified against live runtime endpoints). Browser end-to-end user flows and live network tap evaluations remain separate from backend automated passes.

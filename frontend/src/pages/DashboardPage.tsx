@@ -29,6 +29,8 @@ import { StatCard, ChartCard, StatusBadge, DataTable, SectionHeader, LoadingSpin
 import type { Column } from '@/components/common'
 import type { ThreatDetection, OrganizationActivity, SystemComponent } from '@/types/dashboard'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useApiQuery } from '@/hooks/useApiQuery'
+import { predictService } from '@/services/predictService'
 
 /* ── Recharts custom tooltip style ────────────────────────── */
 
@@ -142,6 +144,7 @@ const healthDotColor: Record<string, string> = {
 
 export default function DashboardPage() {
   const { data, loading, error, refetch } = useDashboard()
+  const inferenceHealth = useApiQuery(() => predictService.health())
 
   if (loading) return <LoadingSpinner label="Loading dashboard…" />
   if (error || !data)
@@ -422,8 +425,16 @@ export default function DashboardPage() {
           <SectionHeader title="System Health" subtitle="Component status overview" />
           <div className="space-y-2">
             {systemHealth.map((comp) => (
-              <SystemHealthRow key={comp.name} component={comp} />
+              comp.name === 'ML Inference (Predict)' ? (
+                <SystemHealthRow key={comp.name} component={{ ...comp,
+                  status: inferenceHealth.loading ? 'unknown' : inferenceHealth.error || !inferenceHealth.data ? 'unknown' : inferenceHealth.data.model_loaded && inferenceHealth.data.normalization_loaded && !inferenceHealth.data.error ? 'operational' : 'down',
+                  detail: inferenceHealth.loading ? 'Checking checkpoint readiness…' : inferenceHealth.error || !inferenceHealth.data ? 'Readiness check unavailable; retry below.' : inferenceHealth.data.model_loaded && inferenceHealth.data.normalization_loaded && !inferenceHealth.data.error ? `Ready for inference · ${inferenceHealth.data.experiment_id ?? 'Checkpoint loaded'}` : 'Model or normalization unavailable.',
+                }} />
+              ) : comp.name === 'Flower FL Server' ? (
+                <SystemHealthRow key={comp.name} component={{ ...comp, name: 'Flower FL Server', detail: 'Not integrated · federated training uses a single-process simulation.' }} statusLabel="Not integrated" />
+              ) : <SystemHealthRow key={comp.name} component={comp} />
             ))}
+            <button type="button" onClick={inferenceHealth.refetch} className="text-xs text-accent-cyan hover:underline">Refresh inference readiness</button>
           </div>
         </div>
       </div>
@@ -440,16 +451,16 @@ export default function DashboardPage() {
 
 /* ── System Health Row ────────────────────────────────────── */
 
-function SystemHealthRow({ component }: { component: SystemComponent }) {
+function SystemHealthRow({ component, statusLabel }: { component: SystemComponent; statusLabel?: string }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-cyber-700/50 bg-cyber-900 px-4 py-3">
       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${healthDotColor[component.status]}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-gray-200">{component.name}</span>
-          <StatusBadge variant={component.status} />
+          {statusLabel ? <span className="text-xs text-gray-400">{statusLabel}</span> : <StatusBadge variant={component.status} />}
         </div>
-        <p className="mt-0.5 truncate text-xs text-gray-500">{component.detail}</p>
+        <p className="mt-0.5 break-words text-xs text-gray-500">{component.detail}</p>
       </div>
     </div>
   )

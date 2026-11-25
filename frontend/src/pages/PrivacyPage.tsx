@@ -224,8 +224,8 @@ export default function PrivacyPage() {
           ))}
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Only model parameter updates are transmitted; raw training samples remain on client devices.
-          Server-side update validation enforces structural schema integrity, NaN/Inf rejection, and L2 clipping bounds.
+          Aggregation receives model parameters, not raw training rows, in the single-process simulation.
+          Update validation checks structure and finite values; configured norm and value thresholds also apply.
         </p>
       </div>
 
@@ -268,7 +268,7 @@ export default function PrivacyPage() {
 
       {/* ── Bottom notice ─────────────────────────────── */}
       <p className="pb-2 text-center text-xs text-gray-500">
-        Differential privacy parameters and model update statuses are sourced from the backend experiment database and security repositories.
+        Experimental clipping/noise parameters and model update statuses are sourced from the backend experiment database and security repositories.
       </p>
     </div>
   )
@@ -293,19 +293,19 @@ function PrivacyFlow() {
         <FlowNode
           icon={Database}
           label="Organization Data"
-          sublabel="Raw traffic logs, network flows — stays local"
+          sublabel="Separate training partition in the simulation"
           tag="LOCAL ONLY"
           tagColor="text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
           iconColor="text-accent-green"
           iconBg="bg-accent-green/10"
         />
-        <FlowArrow label="Fed into local model only — never transmitted" safe />
+        <FlowArrow label="Used for local training within the simulation" safe />
 
         {/* Step 2: Local Training */}
         <FlowNode
           icon={Cpu}
           label="Local Training"
-          sublabel="Model trained entirely on local data within organization boundary"
+          sublabel="Model trained on its assigned partition"
           tag="LOCAL ONLY"
           tagColor="text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
           iconColor="text-accent-blue"
@@ -317,32 +317,31 @@ function PrivacyFlow() {
         <FlowNode
           icon={Shield}
           label="Model Update"
-          sublabel="Gradient/weight delta — no raw data included"
-          tag="TRANSMITTED"
+          sublabel="Computed parameter delta before protection"
+          tag="COMPUTED"
           tagColor="text-accent-cyan bg-accent-cyan/10 border-accent-cyan/20"
           iconColor="text-accent-cyan"
           iconBg="bg-accent-cyan/10"
         />
-        <FlowArrow label="Privacy protection applied before sending (planned)" warn />
+        <FlowArrow label="Clip and add experimental noise to learnable updates" warn />
 
         {/* Step 4: Privacy protection */}
         <FlowNode
           icon={Lock}
           label="Privacy Protection Layer"
-          sublabel="Differential privacy + secure aggregation — PLANNED, not yet active"
-          tag="PLANNED"
+          sublabel="L2 clipping and Gaussian noise; formal DP not established"
+          tag="IMPLEMENTED"
           tagColor="text-accent-amber bg-accent-amber/10 border-accent-amber/20"
           iconColor="text-accent-amber"
           iconBg="bg-accent-amber/10"
-          dimmed
         />
-        <FlowArrow label="Protected update sent to server" warn />
+        <FlowArrow label="Reconstruct parameters and validate before aggregation" warn />
 
         {/* Step 5: Federated server */}
         <FlowNode
           icon={Server}
-          label="Federated Aggregation Server"
-          sublabel="Combines updates from all clients — sees updates, not raw data"
+          label="Simulated Aggregation"
+          sublabel="Combines individual accepted client parameters"
           tag="SERVER"
           tagColor="text-accent-purple bg-accent-purple/10 border-accent-purple/20"
           iconColor="text-accent-purple"
@@ -354,7 +353,7 @@ function PrivacyFlow() {
         <FlowNode
           icon={CheckCircle2}
           label="Updated Global Model"
-          sublabel="Distributed back to all clients for next round"
+          sublabel="Reused by simulated clients for the next round"
           tag="GLOBAL"
           tagColor="text-accent-cyan bg-accent-cyan/10 border-accent-cyan/20"
           iconColor="text-accent-cyan"
@@ -364,9 +363,9 @@ function PrivacyFlow() {
 
       {/* Legend */}
       <div className="mt-5 flex flex-wrap gap-4 border-t border-cyber-700/40 pt-4">
-        <LegendItem color="bg-emerald-400" label="Enforced by FL design (data never leaves org)" />
-        <LegendItem color="bg-accent-amber" label="Planned privacy mechanism (not yet implemented)" />
-        <LegendItem color="bg-accent-cyan"  label="Model updates only — transmitted to server" />
+        <LegendItem color="bg-emerald-400" label="Separate training partitions in simulation" />
+        <LegendItem color="bg-accent-amber" label="Experimental clipping and Gaussian noise; no formal DP" />
+        <LegendItem color="bg-accent-cyan"  label="Model parameters passed to simulated aggregation" />
       </div>
     </div>
   )
@@ -396,7 +395,7 @@ function FlowNode({
             {tag}
           </span>
         </div>
-        <p className="truncate text-xs text-gray-500">{sublabel}</p>
+        <p className="text-xs text-gray-500">{sublabel}</p>
       </div>
     </div>
   )

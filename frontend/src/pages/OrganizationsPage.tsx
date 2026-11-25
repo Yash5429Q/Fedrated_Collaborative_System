@@ -97,7 +97,7 @@ export default function OrganizationsPage() {
           bgAccent="bg-accent-blue/10"
         />
         <StatCard
-          label="Connected"
+          label="Registry Active / Training"
           value={`${summary.active + summary.training} / ${summary.total}`}
           icon={Users}
           accent="text-accent-green"
@@ -105,14 +105,14 @@ export default function OrganizationsPage() {
           trend={{ value: `${summary.offline} offline`, direction: 'down' }}
         />
         <StatCard
-          label="Total Data Points"
+          label="Training Samples"
           value={`${(totalDataPoints / 1000).toFixed(1)}k`}
           icon={Database}
           accent="text-accent-cyan"
           bgAccent="bg-accent-cyan/10"
         />
         <StatCard
-          label="Offline"
+          label="Registry Offline"
           value={summary.offline}
           icon={BarChart3}
           accent="text-accent-purple"
@@ -193,7 +193,7 @@ function OrganizationCard({
   isExpanded: boolean
   onToggle: () => void
 }) {
-  const isConnected = org.status === 'active' || org.status === 'training'
+  const isRegistryActive = org.status === 'active' || org.status === 'training'
 
   return (
     <div className="overflow-hidden rounded-lg border border-cyber-700/50 bg-cyber-900">
@@ -203,8 +203,8 @@ function OrganizationCard({
         className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-cyber-800/30"
       >
         {/* Connection indicator */}
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isConnected ? 'bg-accent-cyan/10' : 'bg-cyber-800'}`}>
-          {isConnected ? (
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isRegistryActive ? 'bg-accent-cyan/10' : 'bg-cyber-800'}`}>
+          {isRegistryActive ? (
             <Wifi className="h-5 w-5 text-accent-cyan" />
           ) : (
             <WifiOff className="h-5 w-5 text-gray-600" />
@@ -221,7 +221,7 @@ function OrganizationCard({
             />
           </div>
           <p className="mt-0.5 truncate text-xs text-gray-500">
-            {org.description}
+            {org.datasetSize > 0 && org.currentRound !== null ? `Simulated participant — ${org.datasetSize.toLocaleString()} training samples` : 'Registered non-participant'}
           </p>
         </div>
 
@@ -230,7 +230,7 @@ function OrganizationCard({
           <QuickStat label="Dataset" value={`${(org.datasetSize / 1000).toFixed(1)}k`} />
           <QuickStat label="Round" value={org.currentRound !== null ? `${org.currentRound}/${org.totalRounds ?? org.currentRound}` : '—'} />
           <QuickStat label="Model" value={org.localModel.version} />
-          <QuickStat label="Accuracy" value={org.localModel.accuracy !== null ? `${org.localModel.accuracy}%` : '—'} />
+          <QuickStat label="Local test accuracy" value={org.localModel.accuracy !== null ? `${org.localModel.accuracy}%` : '—'} />
           <QuickStat label="Registry timestamp" value={org.lastUpdate} />
         </div>
 
@@ -270,8 +270,8 @@ function OrganizationDetail({ org }: { org: Organization }) {
           {/* Organization info */}
           <DetailSection title="Organization Details" icon={Building2}>
             <DetailRow label="ID" value={org.id} mono />
-            <DetailRow label="Status" badge={org.status} />
-            <DetailRow label="Joined" value={formatDate(org.joinedAt)} />
+            <DetailRow label="Registry status" badge={org.status} />
+            <DetailRow label="Registry joined" value={formatDate(org.joinedAt)} />
             <DetailRow label="Latency" value={org.networkLatency} />
             <DetailRow label="Privacy" value={org.privacyMode} />
             <DetailRow label="Threats Found" value={org.threatsDetected != null ? org.threatsDetected.toLocaleString() : 'N/A'} />
@@ -281,16 +281,16 @@ function OrganizationDetail({ org }: { org: Organization }) {
           <DetailSection title="Local Model" icon={Cpu}>
             <DetailRow label="Status" badge={org.localModel.status} />
             <DetailRow label="Version" value={org.localModel.version} mono />
-            <DetailRow label="Accuracy" value={org.localModel.accuracy !== null ? `${org.localModel.accuracy}%` : 'N/A'} />
+            <DetailRow label="Local test accuracy" value={org.localModel.accuracy !== null ? `${org.localModel.accuracy}%` : 'N/A'} />
             <DetailRow label="Loss" value={org.localModel.loss != null ? org.localModel.loss.toFixed(3) : 'N/A'} />
-            <DetailRow label="Epochs" value={org.localModel.epochs > 0 ? String(org.localModel.epochs) : 'N/A'} />
-            <DetailRow label="Last Trained" value={formatDate(org.localModel.lastTrained)} />
+            <DetailRow label="Epochs per round" value={org.localModel.epochs > 0 ? String(org.localModel.epochs) : 'N/A'} />
+            <DetailRow label="Historical registry timestamp" value={formatDate(org.localModel.lastTrained)} />
           </DetailSection>
 
           {/* Dataset info */}
           <DetailSection title="Dataset" icon={Database}>
-            <DetailRow label="Total Samples" value={org.datasetSize.toLocaleString()} />
-            <DetailRow label="Split" value={org.datasetSplit} />
+            <DetailRow label="Assigned Training Samples" value={org.datasetSize.toLocaleString()} />
+            <DetailRow label="Benchmark split (global)" value="75% train / 10% validation / 15% test" />
           </DetailSection>
         </div>
 
@@ -309,7 +309,7 @@ function OrganizationDetail({ org }: { org: Organization }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,37,64,0.6)" horizontal={false} />
                 <XAxis
                   type="number"
-                  domain={[0, 40]}
+                  domain={[0, 100]}
                   tick={{ fill: '#6b7280', fontSize: 11 }}
                   tickLine={false}
                   axisLine={{ stroke: '#1a2540' }}
