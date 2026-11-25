@@ -1,5 +1,5 @@
 {
-  "experiment_id": "exp_20261124_164114_1735d6c9",
+  "experiment_id": "exp_20261125_173246_9acfd8aa",
   "dataset_name": "cicids2017",
   "model_name": "ThreatNet",
   "model_architecture": "68->256->BN->ReLU->Drop(0.3)->128->BN->ReLU->Drop(0.3)->64->BN->ReLU->Drop(0.2)->5",
@@ -12,7 +12,7 @@
     "3": "Port Scan",
     "4": "Malware"
   },
-  "rounds": 20,
+  "rounds": 8,
   "clients": 3,
   "epochs": 3,
   "dirichlet_alpha": 0.5,
@@ -20,19 +20,41 @@
   "lr": 0.001,
   "weight_decay": 0.0001,
   "class_weighted": true,
-  "momentum": 0.2,
-  "norm_guard_multiplier": 3.0,
+  "momentum": 0.0,
+  "norm_guard_multiplier": 0.0,
   "privacy_clipping_enabled": true,
   "privacy_clip_norm": 5.0,
   "privacy_dp_noise_enabled": true,
-  "privacy_noise_multiplier": 0.1,
-  "mode": "iid",
-  "best_round": 14,
-  "final_accuracy": 84.22,
-  "final_f1": 82.01,
-  "final_weighted_f1": 84.38,
-  "final_loss": 0.6536,
-  "normalization_method": "zscore",
+  "privacy_noise_multiplier": 0.001,
+  "mode": "non_iid",
+  "best_round": 6,
+  "final_accuracy": 94.48,
+  "final_f1": 93.08,
+  "final_weighted_f1": 94.44,
+  "final_loss": 0.2588,
+  "proximal_mu": 0.01,
+  "evaluation_protocol": "common_held_out_v1",
+  "split_counts": {
+    "train": 27892,
+    "val": 3716,
+    "test": 5575
+  },
+  "best_validation_f1": 91.90590251422279,
+  "normalization_method": "robust_zscore_v1",
+  "preprocessing": {
+    "version": "robust_zscore_v1",
+    "negative_medians": {
+      "min_seg_size_forward": 32.0,
+      "Fwd Header Length.1": 64.0,
+      "Fwd Header Length": 64.0,
+      "Bwd Header Length": 40.0
+    },
+    "clip_abs": 10.0
+  },
+  "decision_rule": {
+    "version": "attack_gate_v1",
+    "attack_threshold": 0.75
+  },
   "normalization_artifact": "normalization.npz",
   "normalization_scope": "training_only",
   "normalization_note": "Mean/std fitted ONLY on training split, not on test/val data",
@@ -107,5 +129,5 @@
     "Idle Max",
     "Idle Min"
   ],
-  "creation_timestamp": "2026-11-24T16:47:52.047069+00:00"
+  "creation_timestamp": "2026-11-25T17:35:24.827685+00:00"
 }
