@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,12 +13,11 @@ class PrivacyRepo:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def get_security_events(self) -> list[PrivacyEvent]:
-        result = await self.db.execute(
-            select(PrivacyEvent)
-            .options(selectinload(PrivacyEvent.organization))
-            .order_by(PrivacyEvent.timestamp.desc())
-        )
+    async def get_security_events(self, *, include_demo: bool = True) -> list[PrivacyEvent]:
+        stmt = select(PrivacyEvent).options(selectinload(PrivacyEvent.organization))
+        if not include_demo:
+            stmt = stmt.where(PrivacyEvent.id.not_in(["sec-001", "sec-002", "sec-003", "sec-004"]))
+        result = await self.db.execute(stmt.order_by(PrivacyEvent.timestamp.desc()))
         return list(result.scalars().all())
 
     async def get_events_by_severity(self, severity: str) -> list[PrivacyEvent]:
@@ -34,6 +34,20 @@ class PrivacyRepo:
             select(func.count()).select_from(PrivacyEvent)
         )
         return result.scalar_one()
+
+    @staticmethod
+    def count_last_24h(events, now=None) -> int:
+        now = now or datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
+        count = 0
+        for event in events:
+            try:
+                stamp = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+                if stamp.tzinfo is not None and cutoff <= stamp <= now:
+                    count += 1
+            except (ValueError, TypeError, AttributeError):
+                continue
+        return count
 
     async def count_critical(self) -> int:
         from sqlalchemy import func

@@ -31,7 +31,7 @@ class NonIIDResult(BaseModel):
     alpha: float
     local_avg_accuracy: float
     federated_accuracy: float
-    robustness_score: int = Field(ge=0, le=100)
+    robustness_score: Optional[float] = Field(default=None, ge=0)
 
 
 class PerfRoundMetric(BaseModel):
@@ -72,6 +72,8 @@ class PerformanceSummary(BaseModel):
     federated_fpr: float
     local_avg_fpr: float
     fpr_reduction: float
+    binary_false_positive_rate: Optional[float] = None
+    binary_attack_detection_rate: Optional[float] = None
 
 
 class PerformanceResponse(BaseModel):
@@ -85,3 +87,6 @@ class PerformanceResponse(BaseModel):
     federated_confusion_matrix: ConfusionMatrix
     data_source: str = "database"
     experiment_id: Optional[str] = None
+    evaluation_mode: Optional[str] = None
+    local_confusion_note: Optional[str] = None
+    robustness_note: str = "For experiment results: federated accuracy divided by IID federated accuracy, times 100. Not a rubric score."

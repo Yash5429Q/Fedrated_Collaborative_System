@@ -561,9 +561,19 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
         logger.warning("experiment_results.json missing experiment_id.")
         return
 
-    iid_result = data.get("iid", {})
-    noniid_result = data.get("non_iid", {})
+    rows = build_experiment_rows(data)
+    db.add_all(rows)
+    await db.commit()
+    logger.info("Successfully seeded %d experiment metric rows (experiment_id=%s).", len(rows), experiment_id)
 
+
+def build_experiment_rows(data: dict, *, deployment_mode: str | None = None) -> list[Metric]:
+    """Build rows without touching the database. Explicit deployment mode is optional."""
+    experiment_id = data["experiment_id"]
+    iid_result = data["iid"]
+    noniid_result = data["non_iid"]
+    if deployment_mode not in (None, "iid", "non_iid"):
+        raise ValueError("Invalid deployment mode")
     logger.info("Seeding database with CICIDS2017 experiment %s …", experiment_id)
     rows: list[Metric] = []
     now = datetime.now(timezone.utc).isoformat()
@@ -573,9 +583,9 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
         "rounds": int(iid_result.get("num_rounds", 20)),
         "num_clients": int(iid_result.get("num_clients", 3)),
         "samples": float(
-            sum(p.get("total_samples", 0) for p in iid_result.get("partition_stats", []))
+            sum(iid_result["split_counts"].values()) if "split_counts" in iid_result else sum(p.get("total_samples", 0) for p in iid_result.get("partition_stats", []))
         ),
-        "seed": 42.0,
+        "seed": float(iid_result.get("split_seed", 42)),
         "epochs": int(iid_result.get("local_epochs", 3)),
     }
 
@@ -589,6 +599,8 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
         ("total_samples", args_dict["samples"]),
         ("random_seed", args_dict["seed"]),
         ("local_epochs", float(args_dict["epochs"])),
+        *(([("deployed_non_iid", float(deployment_mode == "non_iid"))] if deployment_mode is not None else [])),
+        ("proximal_mu", float(iid_result.get("proximal_mu", 0))),
     ]:
         rows.append(Metric(
             timestamp=now,
@@ -622,6 +634,8 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
             ("weighted_f1", g.get("weighted_f1", g.get("f1", 0.0))),
             ("false_positive_rate", g.get("false_positive_rate", 0.0)),
             ("loss", g.get("loss", 0.0)),
+            *[(k, g[k]) for k in ("binary_attack_detection_rate", "binary_false_positive_rate", "binary_tp", "binary_tn", "binary_fp", "binary_fn") if k in g],
+            *(([("best_round", exp["best_round"])] if "best_round" in exp else [])),
         ]:
             rows.append(Metric(
                 timestamp=ts,
@@ -646,6 +660,8 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
                 ("local_avg_accuracy", rd.get("local_avg_accuracy", 0.0)),
                 ("local_avg_f1", rd.get("local_avg_f1", 0.0)),
                 ("federated_fpr", glob.get("false_positive_rate", 0.0)),
+                *[(k, rd[k]) for k in ("duration_s", "accepted_clients", "attempted_clients") if k in rd],
+                *(([("federated_loss", glob["loss"])] if "loss" in glob else [])),
             ]:
                 rows.append(Metric(
                     timestamp=ts,
@@ -655,6 +671,19 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
                     round_number=int(rd.get("round", 0)),
                     category="experiment_round",
                 ))
+
+            for client in rd.get("clients", []):
+                for name, value in {
+                    "samples": client.get("samples_used"),
+                    "duration_s": client.get("duration_s"),
+                    "update_size_bytes": client.get("update_size_bytes"),
+                    "validation_passed": client.get("validation_passed"),
+                    "accuracy": client.get("metrics", {}).get("accuracy"),
+                    "loss": client.get("metrics", {}).get("loss"),
+                }.items():
+                    if value is not None:
+                        rows.append(Metric(timestamp=ts, metric_name=name, metric_value=float(value),
+                            model_type=tag, org_id=client["org_id"], round_number=rd["round"], category="experiment_client_round"))
 
     # 3. Per-org metrics (federated vs local-only)
     for exp in [iid_result, noniid_result]:
@@ -674,6 +703,7 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
                 ("f1", f_m.get("f1", 0.0), l_m.get("f1", 0.0)),
                 ("precision", f_m.get("precision", 0.0), l_m.get("precision", 0.0)),
                 ("recall", f_m.get("recall", 0.0), l_m.get("recall", 0.0)),
+                *[(k, f_m[k], l_m[k]) for k in ("false_positive_rate", "loss", "binary_attack_detection_rate", "binary_false_positive_rate") if k in f_m and k in l_m],
             ]:
                 fed_val_f = float(fed_val)
                 local_val_f = float(local_val)
@@ -784,6 +814,16 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
                         category="confusion_matrix",
                     ))
 
+        # Pool predictions of the independent local models on the common test set.
+        # Each test record contributes once per local model; not a unique record count.
+        locals_ = exp.get("local_only_metrics", [])
+        if locals_ and all(o.get("confusion_matrix") for o in locals_):
+            for i, actual in enumerate(_CLASS_NAMES):
+                for j, predicted in enumerate(_CLASS_NAMES):
+                    rows.append(Metric(timestamp=ts, metric_name=f"{actual}__{predicted}",
+                        metric_value=float(sum(o["confusion_matrix"][i][j] for o in locals_)),
+                        model_type=tag + "__local_pooled", category="confusion_matrix"))
+
     # 7. Privacy events summary
     for exp in [iid_result, noniid_result]:
         if not exp:
@@ -828,6 +868,4 @@ async def seed_experiments_if_empty(db: AsyncSession) -> None:
                     category="privacy_event",
                 ))
 
-    db.add_all(rows)
-    await db.commit()
-    logger.info("Successfully seeded %d experiment metric rows (experiment_id=%s).", len(rows), experiment_id)
+    return rows

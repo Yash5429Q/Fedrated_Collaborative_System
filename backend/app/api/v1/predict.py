@@ -5,6 +5,9 @@ import json
 import logging
 import math
 from pathlib import Path
+from datetime import datetime, timezone
+from uuid import uuid4
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -84,8 +87,10 @@ def validate_features(features: list) -> str | None:
     if len(features) != NUM_FEATURES:
         return f"Expected {NUM_FEATURES} features, got {len(features)}"
     for i, v in enumerate(features):
-        if not isinstance(v, (int, float)):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
             return f"Feature at index {i} is not a number: {type(v).__name__}"
+        if abs(v) > 3.4028234663852886e38:
+            return f"Feature at index {i} exceeds finite float32 range"
         if math.isnan(v):
             return f"Feature at index {i} is NaN"
         if math.isinf(v):
@@ -105,6 +110,31 @@ def predict(features: List[float]) -> dict:
     """Lazily load inference engine and execute prediction."""
     from app.ml.inference import predict as _predict
     return _predict(features)
+
+
+def build_prediction_alert(response: PredictResponse, metadata: dict):
+    """Create an opt-in prediction alert, not a confirmed incident or blocked attack."""
+    from app.models.threat_detection import ThreatDetection
+    p = response.prediction
+    if p.class_id not in (1, 2, 3, 4) or p.label != CLASS_NAMES[p.class_id]:
+        raise ValueError("Only supported attack predictions can be recorded")
+    if not math.isfinite(p.confidence) or not 0 <= p.confidence <= 1:
+        raise ValueError("Invalid confidence")
+    experiment = response.model.experiment_id
+    if not experiment or experiment == "unknown" or experiment != metadata.get("experiment_id"):
+        raise ValueError("Prediction experiment identity is unavailable or inconsistent")
+    return ThreatDetection(
+        id="pred-" + uuid4().hex[:27],
+        timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        org_id=None, organization_name="Unattributed input",
+        threat_type=p.label, severity="medium", confidence=round(p.confidence * 100, 4),
+        status="detected", model_version=f"v{metadata.get('best_round', 'unknown')}.0",
+        source_ip="", destination_ip="", protocol="", port=0,
+        description=(f"Model-generated alert from submitted features; not a confirmed incident. "
+                     f"Experiment: {experiment}. Severity is an unverified triage default. "
+                     "Network metadata and raw features are not retained; no blocking performed."),
+        raw_features_json="{}", detection_method="federated",
+    )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -129,7 +159,7 @@ async def run_prediction(body: PredictRequest) -> PredictResponse:
         raise HTTPException(status_code=400, detail=err)
 
     inf = get_inference_model()
-    if not inf.is_loaded:
+    if not inf.is_loaded or not inf.has_normalization:
         raise HTTPException(
             status_code=503,
             detail=(
@@ -146,7 +176,22 @@ async def run_prediction(body: PredictRequest) -> PredictResponse:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    return PredictResponse(**result)
+    response = PredictResponse(**result)
+    if body.record_alert and response.prediction.class_id != 0:
+        from app.database import session as session_module
+        from app.repositories.threat_repo import ThreatRepo
+        try:
+            async with session_module.AsyncSessionLocal() as db:
+                alert = build_prediction_alert(response, inf.metadata or {})
+                await ThreatRepo(db).add(alert)
+                await db.commit()
+                response.alert_id = alert.id
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except SQLAlchemyError:
+            logger.exception("Unable to persist prediction alert")
+            raise HTTPException(status_code=503, detail="Prediction alert could not be saved")
+    return response
 
 
 @router.get(
@@ -158,7 +203,7 @@ async def predict_health() -> PredictHealthResponse:
     """Report whether the ThreatNet inference model is loaded and ready."""
     inf = get_inference_model()
     return PredictHealthResponse(
-        model_loaded=inf.is_loaded,
+        model_loaded=inf.is_loaded and inf.has_normalization,
         model_name="ThreatNet",
         input_features=NUM_FEATURES,
         num_classes=NUM_CLASSES,
@@ -166,5 +211,7 @@ async def predict_health() -> PredictHealthResponse:
         experiment_id=(inf.metadata or {}).get("experiment_id"),
         checkpoint_path=inf.checkpoint_path,
         normalization_loaded=inf.has_normalization,
-        error=inf.load_error if not inf.is_loaded else None,
+        error=(inf.load_error or "Checkpoint or normalization unavailable") if not (inf.is_loaded and inf.has_normalization) else None,
+        mode=(inf.metadata or {}).get("mode"),
+        attack_threshold=((inf.metadata or {}).get("decision_rule") or {}).get("attack_threshold"),
     )

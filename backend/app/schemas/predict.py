@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator
 
 
 class PredictRequest(BaseModel):
@@ -15,14 +15,18 @@ class PredictRequest(BaseModel):
         max_length=200,  # upper guard; validated strictly as ==68 in the service
     )
 
+    record_alert: StrictBool = False
+
     @field_validator("features", mode="before")
     @classmethod
     def reject_non_numeric(cls, v):
         if not isinstance(v, list):
             raise ValueError("features must be a list")
         for i, item in enumerate(v):
-            if not isinstance(item, (int, float)):
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
                 raise ValueError(f"Feature at index {i} must be a number, got {type(item).__name__}")
+            if isinstance(item, int) and abs(item) > 3.4028234663852886e38:
+                raise ValueError(f"Feature at index {i} exceeds finite float32 range")
         return v
 
 
@@ -46,6 +50,11 @@ class PredictResponse(BaseModel):
     prediction: PredictionResult
     probabilities: Dict[str, float]
     model: ModelInfo
+    attack_score: Optional[float] = None
+    attack_threshold: Optional[float] = None
+    decision_rule: Optional[str] = None
+    latency_ms: Optional[float] = None
+    alert_id: Optional[str] = None
 
 
 class PredictHealthResponse(BaseModel):
@@ -59,3 +68,5 @@ class PredictHealthResponse(BaseModel):
     checkpoint_path: Optional[str] = None
     normalization_loaded: bool = False
     error: Optional[str] = None
+    mode: Optional[str] = None
+    attack_threshold: Optional[float] = None

@@ -24,9 +24,9 @@ async def get_threats(
 ) -> ThreatsResponse:
     """
     Returns threat detections with optional filtering, plus summary,
-    type distribution, and 24-hour timeline.
+    type distribution, and date-aware UTC hourly timeline.
 
-    **Data source:** demo until real ML inference pipeline is connected.
+    **Data source:** explicitly recorded model prediction alerts. Historical demo records are excluded; alerts are not confirmed incidents.
     """
     return await db_data.get_threats(db=db, 
         organization=organization,

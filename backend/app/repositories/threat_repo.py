@@ -1,15 +1,25 @@
 """Threat repository — detections with filtering, summary, distribution, timeline."""
 from __future__ import annotations
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.threat_detection import ThreatDetection
 
 
 class ThreatRepo:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, scope: str = "all") -> None:
         self.db = db
+        if scope not in ("all", "predictions", "demo"):
+            raise ValueError("Invalid threat scope")
+        self.scope = scope
+
+    def _scope(self):
+        if self.scope == "predictions":
+            return ThreatDetection.id.startswith("pred-", autoescape=True)
+        if self.scope == "demo":
+            return ThreatDetection.id.in_(["td-001", "td-002", "td-003", "td-004", "td-005"])
+        return true()
 
     async def get_threats(
         self,
@@ -22,7 +32,7 @@ class ThreatRepo:
         page_size: int = 50,
     ) -> tuple[list[ThreatDetection], int]:
         """Returns (detections, total_filtered_count)."""
-        stmt = select(ThreatDetection).order_by(ThreatDetection.timestamp.desc())
+        stmt = select(ThreatDetection).where(self._scope()).order_by(ThreatDetection.timestamp.desc())
         if organization:
             stmt = stmt.where(ThreatDetection.organization_name == organization)
         if threat_type:
@@ -55,6 +65,7 @@ class ThreatRepo:
         """Real DB COUNT grouped by severity — replaces hardcoded magic numbers."""
         result = await self.db.execute(
             select(ThreatDetection.severity, func.count())
+            .where(self._scope())
             .group_by(ThreatDetection.severity)
         )
         return dict(result.all())
@@ -63,6 +74,7 @@ class ThreatRepo:
         """Real DB COUNT grouped by status — replaces hardcoded magic numbers."""
         result = await self.db.execute(
             select(ThreatDetection.status, func.count())
+            .where(self._scope())
             .group_by(ThreatDetection.status)
         )
         return dict(result.all())
@@ -70,19 +82,20 @@ class ThreatRepo:
     async def get_counts_by_type(self) -> list[dict]:
         result = await self.db.execute(
             select(ThreatDetection.threat_type, func.count().label("cnt"))
+            .where(self._scope())
             .group_by(ThreatDetection.threat_type)
             .order_by(func.count().desc())
         )
         return [{"type": row[0], "count": row[1]} for row in result.all()]
 
     async def get_total_count(self) -> int:
-        result = await self.db.execute(select(func.count()).select_from(ThreatDetection))
+        result = await self.db.execute(select(func.count()).select_from(ThreatDetection).where(self._scope()))
         return result.scalar_one()
 
     async def count_by_status(self, status: str) -> int:
         result = await self.db.execute(
             select(func.count()).select_from(ThreatDetection)
-            .where(ThreatDetection.status == status)
+            .where(self._scope(), ThreatDetection.status == status)
         )
         return result.scalar_one()
 
@@ -93,6 +106,15 @@ class ThreatRepo:
         Returns a list of dicts with keys: hour, critical, high, medium, low.
         Only hours that have at least one detection are returned.
         """
+        if self.scope != "all":
+            from sqlalchemy import case
+            hour = func.substr(ThreatDetection.timestamp, 1, 13)
+            result = await self.db.execute(select(hour, *[
+                func.sum(case((ThreatDetection.severity == sev, 1), else_=0))
+                for sev in ("critical", "high", "medium", "low")
+            ]).where(self._scope()).group_by(hour).order_by(hour))
+            return [{"hour": row[0] + ":00Z", "critical": row[1], "high": row[2],
+                     "medium": row[3], "low": row[4]} for row in result.all()]
         result = await self.db.execute(
             text(
                 """
@@ -122,7 +144,7 @@ class ThreatRepo:
 
     async def avg_confidence(self) -> float:
         result = await self.db.execute(
-            select(func.avg(ThreatDetection.confidence)).select_from(ThreatDetection)
+            select(func.avg(ThreatDetection.confidence)).select_from(ThreatDetection).where(self._scope())
         )
         val = result.scalar_one()
         return round(float(val), 1) if val is not None else 0.0

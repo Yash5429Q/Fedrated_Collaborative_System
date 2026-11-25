@@ -28,6 +28,8 @@ class Organization(BaseModel):
     local_model_accuracy: Optional[float] = None
     current_round: Optional[int] = None
     last_update: str
+    last_update_note: str = "Historical registry timestamp; not live experiment activity."
+    is_experiment_participant: bool = False
     data_distribution: List[DataSlice]
     participation_rate: float = Field(ge=0.0, le=1.0)
     recent_rounds: List[OrgTrainingRound]

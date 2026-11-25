@@ -63,6 +63,8 @@ class ThreatsResponse(BaseModel):
     page: int = 1
     page_size: int = 50
     data_source: str = "database"
+    historical_demo_count: int = 0
+    alert_note: str = "Prediction alerts, not verified incidents. Unknown IP/protocol are blank, port 0 means unknown, severity is a triage default. No packet blocking performed."
 
 
 class ThreatsQueryParams(BaseModel):

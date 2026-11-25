@@ -15,7 +15,7 @@ class ClientStatus(BaseModel):
     local_loss: Optional[float]
     samples: Optional[int]
     update_size_mb: Optional[float]
-    duration_s: Optional[int]
+    duration_s: Optional[float]
 
 
 class TrainingRound(BaseModel):
@@ -24,11 +24,11 @@ class TrainingRound(BaseModel):
     participating_clients: int
     total_clients: int
     accuracy: float
-    loss: float
+    loss: Optional[float]
     f1: float
-    duration_s: int
+    duration_s: float
     model_version: str
-    started_at: str
+    started_at: Optional[str]
     completed_at: Optional[str]
 
 
@@ -46,7 +46,8 @@ class TrainingSummary(BaseModel):
     global_accuracy: float
     global_f1: float
     global_loss: float
-    avg_round_duration_s: int
+    avg_round_duration_s: float
+    best_round: Optional[int] = None
     aggregation_strategy: str
     active_clients: int
     total_clients: int
@@ -57,9 +58,11 @@ class TrainingResponse(BaseModel):
     client_statuses: List[ClientStatus]
     participation: List[ParticipationPoint]
     data_source: str = "database"
+    evaluation_mode: Optional[str] = None
 
 
 class TrainingRoundsResponse(BaseModel):
     rounds: List[TrainingRound]
     total: int
     data_source: str = "database"
+    evaluation_mode: Optional[str] = None

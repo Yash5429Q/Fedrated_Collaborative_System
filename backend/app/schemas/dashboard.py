@@ -33,6 +33,7 @@ class OrgActivityItem(BaseModel):
     # current_round is the experiment round this org participated up to (None if not a participant)
     current_round: Optional[int]
     last_update: str
+    last_update_note: str = "Historical registry timestamp; not live experiment activity."
     # True if the org participated in the selected experiment
     is_experiment_participant: bool = False
 
@@ -63,9 +64,14 @@ class DashboardResponse(BaseModel):
     current_round: int
     total_rounds: int
     threats_detected: int
+    historical_demo_threat_count: int = 0
     global_model_accuracy: float
     f1_score: float
     false_positive_rate: float
+    binary_false_positive_rate: Optional[float] = None
+    binary_attack_detection_rate: Optional[float] = None
+    evaluation_mode: Optional[str] = None
+    best_round: Optional[int] = None
     # Structured privacy status drawn from verified experiment config
     privacy_status: str
     privacy_detail: Optional[str] = None

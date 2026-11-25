@@ -78,7 +78,7 @@ _START_TIME = time.time()
 async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     org_repo    = OrganizationRepo(db)
     train_repo  = TrainingRepo(db)  # noqa: F841 — kept for future use
-    threat_repo = ThreatRepo(db)
+    threat_repo = ThreatRepo(db, scope="predictions")
     metric_repo = MetricRepo(db)
 
     # 1. Registered organisations from DB
@@ -88,6 +88,7 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     # 2. Latest experiment — all KPIs sourced from here
     exp_id   = await metric_repo.get_latest_experiment_id()
     exp_meta = await metric_repo.get_experiment_metadata(exp_id) if exp_id else {}
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
 
     # 3. Which orgs actually participated in this experiment (from experiment_org IID rows)
     exp_participant_ids: set[str] = set()
@@ -95,7 +96,7 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
         exp_org_rows = await metric_repo.get_by_category_for_experiment("experiment_org", exp_id)
         exp_participant_ids = {
             m.org_id for m in exp_org_rows
-            if m.org_id and m.model_type.endswith("__iid")
+            if m.org_id and m.model_type.endswith("__" + mode)
         }
 
     num_exp_clients = int(exp_meta.get("number_of_clients", len(exp_participant_ids)))
@@ -107,9 +108,10 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     iid_metrics: dict[str, float] = {}
     total_rounds = int(exp_meta.get("number_of_rounds", 0))
 
+    iid_metrics = {}
     if exp_id:
         exp_summary = await metric_repo.get_by_category_for_experiment("experiment_summary", exp_id)
-        iid_metrics = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__iid")}
+        iid_metrics = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__" + mode)}
         global_acc = iid_metrics.get("accuracy", 0.0)
         global_f1  = iid_metrics.get("f1", 0.0)
         global_fpr = iid_metrics.get("false_positive_rate", 0.0)
@@ -120,7 +122,7 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     training_round_metrics: list[TrainingRoundMetric] = []
     if exp_id:
         exp_rounds = await metric_repo.get_by_category_for_experiment("experiment_round", exp_id)
-        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__iid")]
+        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__" + mode)]
         round_nums = sorted(set(m.round_number for m in iid_rounds if m.round_number is not None))
         for rn in round_nums:
             rd = {m.metric_name: m.metric_value for m in iid_rounds if m.round_number == rn}
@@ -137,7 +139,7 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     model_comparison: list[ModelComparisonMetric] = []
     if exp_id:
         exp_org_all = await metric_repo.get_by_category_for_experiment("experiment_org", exp_id)
-        iid_org = [m for m in exp_org_all if m.model_type.endswith("__iid")]
+        iid_org = [m for m in exp_org_all if m.model_type.endswith("__" + mode)]
         for label in ["accuracy", "precision", "recall", "f1"]:
             fed_val = iid_metrics.get(label, 0.0)
             local_vals = [m.metric_value for m in iid_org if m.metric_name == f"{label}__local"]
@@ -162,7 +164,7 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
     if exp_id:
         # Read config from privacy_event category for this experiment (IID)
         priv_rows = await metric_repo.get_by_category_for_experiment("privacy_event", exp_id)
-        iid_priv = {r.metric_name: r.metric_value for r in priv_rows if r.model_type.endswith("__iid")}
+        iid_priv = {r.metric_name: r.metric_value for r in priv_rows if r.model_type.endswith("__" + mode)}
         clipping_enabled  = bool(iid_priv.get("config__clipping_enabled", 0))
         dp_noise_enabled  = bool(iid_priv.get("config__dp_noise_enabled", 0))
         validation_enabled = bool(iid_priv.get("config__validation_enabled", 0))
@@ -186,14 +188,14 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
             detail_parts.append(f"clip_norm={clip_norm}")
         if dp_noise_enabled and noise_std is not None:
             detail_parts.append(f"noise_std={noise_std}")
-        if epsilon_per_round is not None:
+        if epsilon_per_round is not None and iid_priv.get("config__formal_dp_verified"):
             detail_parts.append(f"ε≈{epsilon_per_round:.2f}/round")
         if delta is not None:
             detail_parts.append(f"δ={delta:.0e}")
         if detail_parts:
-            privacy_detail = "Configured: " + ", ".join(detail_parts) + ". Secure aggregation: not implemented."
+            privacy_detail = "Configured: " + ", ".join(detail_parts) + ". Formal DP not established. Secure aggregation: not implemented."
         else:
-            privacy_detail = "DP mechanisms configured. Secure aggregation: not implemented."
+            privacy_detail = "DP mechanisms configured. Formal DP not established. Secure aggregation: not implemented."
 
     # 10. Organisation activity — all registered orgs, flagged by experiment participation
     #     current_round set to experiment total_rounds only for actual participants
@@ -218,9 +220,14 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
         current_round=current_round,
         total_rounds=total_rounds,
         threats_detected=threats_total,
+        historical_demo_threat_count=await ThreatRepo(db, scope="demo").get_total_count(),
         global_model_accuracy=global_acc,
         f1_score=global_f1,
         false_positive_rate=global_fpr,
+        binary_false_positive_rate=iid_metrics.get("binary_false_positive_rate"),
+        binary_attack_detection_rate=iid_metrics.get("binary_attack_detection_rate"),
+        evaluation_mode=mode if exp_id else None,
+        best_round=int(iid_metrics["best_round"]) if "best_round" in iid_metrics else None,
         privacy_status=privacy_status,
         privacy_detail=privacy_detail,
         training_rounds=training_round_metrics,
@@ -250,8 +257,8 @@ async def get_dashboard(db: AsyncSession) -> DashboardResponse:
         system_components=[
             SystemComponent(name="FastAPI Server",        status="healthy", detail="Running — DB backed"),
             SystemComponent(name="SQLite Database",       status="healthy", detail="Connected via SQLAlchemy"),
-            SystemComponent(name="ML Inference (Predict)",status="healthy" if exp_id else "unknown",
-                            detail=f"Checkpoint from {exp_id}" if exp_id else "No experiment loaded"),
+            SystemComponent(name="ML Inference (Predict)",status="unknown",
+                            detail="Check /api/predict/health for actual loaded checkpoint"),
             SystemComponent(name="Flower FL Server",      status="unknown", detail="Not yet integrated"),
         ],
         experiment_id=exp_id,
@@ -274,6 +281,7 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
     # Pull per-org metrics from latest experiment
     exp_id = await metric_repo.get_latest_experiment_id()
     exp_meta = await metric_repo.get_experiment_metadata(exp_id) if exp_id else {}
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
     total_rounds  = int(exp_meta.get("number_of_rounds", 0))
     local_epochs  = int(exp_meta.get("local_epochs", 0))
     total_samples = int(exp_meta.get("total_samples", 0))
@@ -282,7 +290,7 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
     org_exp_data: dict[str, dict] = {}
     if exp_id:
         exp_org = await metric_repo.get_by_category_for_experiment("experiment_org", exp_id)
-        iid_org = [m for m in exp_org if m.model_type.endswith("__iid")]
+        iid_org = [m for m in exp_org if m.model_type.endswith("__" + mode)]
         for m in iid_org:
             if m.org_id not in org_exp_data:
                 org_exp_data[m.org_id] = {}
@@ -292,14 +300,16 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
     partition_data: dict[str, dict] = {}
     if exp_id:
         exp_part = await metric_repo.get_by_category_for_experiment("experiment_partition", exp_id)
-        iid_part = [m for m in exp_part if m.model_type.endswith("__iid")]
+        iid_part = [m for m in exp_part if m.model_type.endswith("__" + mode)]
         for m in iid_part:
             if m.org_id not in partition_data:
                 partition_data[m.org_id] = {}
             partition_data[m.org_id][m.metric_name] = m.metric_value
 
-    # Client participations for training history
-    participations = await train_repo.get_all_participations()
+    # Use experiment-scoped client history, not unrelated seeded rounds.
+    client_rows = await metric_repo.get_by_category_for_experiment("experiment_client_round", exp_id) if exp_id else []
+    client_rows = [m for m in client_rows if m.model_type.endswith("__" + mode)]
+    participations = await train_repo.get_all_participations() if not exp_id else []
 
     org_schemas = []
     for o in all_orgs:
@@ -307,7 +317,7 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
         part_d = partition_data.get(o.id, {})
 
         # Dataset size: prefer real experiment partition data
-        dataset_size = int(part_d.get("total_samples", o.dataset_size))
+        dataset_size = int(part_d.get("partition_info", 0) if exp_id else o.dataset_size)
 
         # Local accuracy: from experiment_org
         local_acc = exp_d.get("accuracy__local", o.local_model_accuracy)
@@ -318,6 +328,11 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
             dist = json.loads(o.data_distribution_json)
         except Exception:
             pass
+
+        if exp_id:
+            counts = {k.split("__", 1)[1]: v for k, v in part_d.items() if k.startswith("class__")}
+            total = sum(counts.values())
+            dist = [{"label": k, "value": round(100*v/total, 2), "color": _threat_color(k)} for k,v in counts.items()] if total else []
 
         # Training history from client_participations
         org_parts = sorted(
@@ -332,6 +347,7 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
         # Local loss from experiment_org
         local_loss = exp_d.get("loss__local", None)
 
+        history = {rn: {m.metric_name: m.metric_value for m in client_rows if m.org_id == o.id and m.round_number == rn} for rn in sorted({m.round_number for m in client_rows if m.org_id == o.id and m.round_number is not None}, reverse=True)}
         org_schemas.append(OrgSchema(
             org_id=o.id,
             name=o.name,
@@ -339,11 +355,12 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
             dataset_size=dataset_size,
             local_model_status=o.local_model_status,
             local_model_accuracy=local_acc if o.id in org_exp_data else None,
+            is_experiment_participant=o.id in org_exp_data,
             current_round=total_rounds if o.id in org_exp_data else None,
             last_update=o.last_update,
-            participation_rate=o.participation_rate,
+            participation_rate=(sum(bool(v.get("validation_passed")) for v in history.values())/total_rounds if history and total_rounds else 0.0) if exp_id else o.participation_rate,
             data_distribution=[DataSlice(**d) for d in dist],
-            recent_rounds=[
+            recent_rounds=[OrgTrainingRound(round=rn, status="completed" if v.get("validation_passed") else "failed", accuracy=v.get("accuracy"), duration_s=round(v["duration_s"]) if "duration_s" in v else None) for rn,v in list(history.items())[:10]] if exp_id else [
                 OrgTrainingRound(
                     round=p.training_round.round_number,
                     status=p.status,
@@ -351,7 +368,7 @@ async def get_organizations(db: AsyncSession) -> OrganizationsResponse:
                     duration_s=p.duration_s,
                 )
                 for p in org_parts
-                if p.training_round is not None
+                if p.training_round is not None and not exp_id
             ],
         ))
 
@@ -372,6 +389,7 @@ async def get_training(db: AsyncSession) -> TrainingResponse:
 
     exp_id   = await metric_repo.get_latest_experiment_id()
     exp_meta = await metric_repo.get_experiment_metadata(exp_id) if exp_id else {}
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
 
     total_rounds  = int(exp_meta.get("number_of_rounds", 0))
     local_epochs  = int(exp_meta.get("local_epochs", 0))
@@ -383,9 +401,10 @@ async def get_training(db: AsyncSession) -> TrainingResponse:
     global_acc  = 0.0
     global_f1   = 0.0
     global_loss = 0.0
+    iid_metrics = {}
     if exp_id:
         exp_summary = await metric_repo.get_by_category_for_experiment("experiment_summary", exp_id)
-        iid_metrics = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__iid")}
+        iid_metrics = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__" + mode)}
         global_acc  = iid_metrics.get("accuracy", 0.0)
         global_f1   = iid_metrics.get("f1", 0.0)
         global_loss = iid_metrics.get("loss", 0.0)
@@ -394,17 +413,21 @@ async def get_training(db: AsyncSession) -> TrainingResponse:
     exp_rounds_data: dict[int, dict] = {}
     if exp_id:
         exp_rounds = await metric_repo.get_by_category_for_experiment("experiment_round", exp_id)
-        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__iid")]
+        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__" + mode)]
         for m in iid_rounds:
             if m.round_number not in exp_rounds_data:
                 exp_rounds_data[m.round_number] = {}
             exp_rounds_data[m.round_number][m.metric_name] = m.metric_value
 
+    client_rows = await metric_repo.get_by_category_for_experiment("experiment_client_round", exp_id) if exp_id else []
+    client_rows = [m for m in client_rows if m.model_type.endswith("__" + mode)]
+    partition_rows = await metric_repo.get_by_category_for_experiment("experiment_partition", exp_id) if exp_id else []
+    sizes = {m.org_id: int(m.metric_value) for m in partition_rows if m.model_type.endswith("__" + mode) and m.metric_name == "partition_info"}
     # Client statuses from experiment_org (IID, last round)
     client_statuses: list[ClientStatus] = []
     if exp_id:
         exp_org = await metric_repo.get_by_category_for_experiment("experiment_org", exp_id)
-        iid_org = [m for m in exp_org if m.model_type.endswith("__iid")]
+        iid_org = [m for m in exp_org if m.model_type.endswith("__" + mode)]
         org_ids = sorted(set(m.org_id for m in iid_org if m.org_id))
         for oid in org_ids:
             org_d = {m.metric_name: m.metric_value for m in iid_org if m.org_id == oid}
@@ -412,27 +435,29 @@ async def get_training(db: AsyncSession) -> TrainingResponse:
                 (m.organization.name for m in iid_org if m.org_id == oid and m.organization),
                 oid,
             )
+            last = {m.metric_name:m.metric_value for m in client_rows if m.org_id == oid and m.round_number == total_rounds}
             client_statuses.append(ClientStatus(
                 org_id=oid,
                 org_name=org_name,
-                connection_status="active",
+                connection_status="simulated",
                 training_status="completed",
                 local_accuracy=org_d.get("accuracy__local"),
                 local_loss=org_d.get("loss__local"),
-                samples=int(exp_meta.get("total_samples", 0)) // max(num_clients, 1),
-                update_size_mb=None,
-                duration_s=None,
+                samples=sizes.get(oid),
+                update_size_mb=last["update_size_bytes"]/1_000_000 if "update_size_bytes" in last else None,
+                duration_s=last["duration_s"] if "duration_s" in last else None,
             ))
 
     # Participation chart
     round_nums = sorted(exp_rounds_data.keys()) if exp_rounds_data else list(range(1, total_rounds + 1))
     participation = [
-        ParticipationPoint(round=rn, participating=num_clients, total=num_clients)
+        ParticipationPoint(round=rn, participating=int(exp_rounds_data.get(rn, {}).get("accepted_clients", num_clients)), total=num_clients)
         for rn in round_nums
     ]
 
-    avg_dur = 0
-    model_ver = f"v{total_rounds}.0" if total_rounds > 0 else "v0.0"
+    durations = [r["duration_s"] for r in exp_rounds_data.values() if "duration_s" in r]
+    avg_dur = round(sum(durations)/len(durations), 3) if durations else 0
+    model_ver = f"v{int(iid_metrics.get('best_round', total_rounds))}.0" if exp_id else "v0.0"
 
     return TrainingResponse(
         summary=TrainingSummary(
@@ -444,13 +469,15 @@ async def get_training(db: AsyncSession) -> TrainingResponse:
             global_f1=global_f1,
             global_loss=global_loss,
             avg_round_duration_s=avg_dur,
-            aggregation_strategy="FedAvg",
+            best_round=int(iid_metrics["best_round"]) if "best_round" in iid_metrics else None,
+            aggregation_strategy="FedProx" if exp_meta.get("proximal_mu", 0) > 0 else "FedAvg",
             active_clients=num_clients,
             total_clients=num_clients,
         ),
         client_statuses=client_statuses,
         participation=participation,
         data_source=f"experiment:{exp_id}" if exp_id else "database",
+        evaluation_mode=mode if exp_id else None,
     )
 
 
@@ -459,6 +486,7 @@ async def get_training_rounds(db: AsyncSession) -> TrainingRoundsResponse:
 
     exp_id   = await metric_repo.get_latest_experiment_id()
     exp_meta = await metric_repo.get_experiment_metadata(exp_id) if exp_id else {}
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
     total_rounds = int(exp_meta.get("number_of_rounds", 0))
     num_clients  = int(exp_meta.get("number_of_clients", 0))
 
@@ -466,7 +494,7 @@ async def get_training_rounds(db: AsyncSession) -> TrainingRoundsResponse:
 
     if exp_id:
         exp_rounds = await metric_repo.get_by_category_for_experiment("experiment_round", exp_id)
-        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__iid")]
+        iid_rounds = [m for m in exp_rounds if m.model_type.endswith("__" + mode)]
         round_nums = sorted(set(m.round_number for m in iid_rounds if m.round_number is not None))
 
         for rn in round_nums:
@@ -474,14 +502,14 @@ async def get_training_rounds(db: AsyncSession) -> TrainingRoundsResponse:
             schemas.append(TrainingRoundSchema(
                 round=rn,
                 status="completed",
-                participating_clients=num_clients,
+                participating_clients=int(rd.get("accepted_clients", num_clients)),
                 total_clients=num_clients,
                 accuracy=rd.get("federated_accuracy", 0.0),
-                loss=rd.get("federated_fpr", 0.0),
+                loss=rd.get("federated_loss"),
                 f1=rd.get("federated_f1", 0.0),
-                duration_s=0,
+                duration_s=rd.get("duration_s", 0),
                 model_version=f"v{rn}.0",
-                started_at=exp_meta.get("timestamp", datetime.now(timezone.utc).isoformat()),  # type: ignore[arg-type]
+                started_at=None,  # individual start timestamps were not recorded
                 completed_at=None,
             ))
 
@@ -489,6 +517,7 @@ async def get_training_rounds(db: AsyncSession) -> TrainingRoundsResponse:
         rounds=list(reversed(schemas)),
         total=len(schemas),
         data_source=f"experiment:{exp_id}" if exp_id else "database",
+        evaluation_mode=mode if exp_id else None,
     )
 
 
@@ -506,7 +535,7 @@ async def get_threats(
     page: int = 1,
     page_size: int = 50,
 ) -> ThreatsResponse:
-    repo = ThreatRepo(db)
+    repo = ThreatRepo(db, scope="predictions")
     detections, total = await repo.get_threats(
         organization, threat_type, severity, status, search, page, page_size
     )
@@ -573,7 +602,8 @@ async def get_threats(
         total=total,
         page=page,
         page_size=page_size,
-        data_source="database",
+        data_source="prediction_alerts",
+        historical_demo_count=await ThreatRepo(db, scope="demo").get_total_count(),
     )
 
 
@@ -601,22 +631,24 @@ async def get_performance(db: AsyncSession) -> PerformanceResponse:
 async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> PerformanceResponse:
     """Build full performance response from the specified CICIDS2017 experiment."""
 
+    exp_meta = await repo.get_experiment_metadata(exp_id)
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
     exp_summary = await repo.get_by_category_for_experiment("experiment_summary", exp_id)
     exp_rounds  = await repo.get_by_category_for_experiment("experiment_round",   exp_id)
     exp_org     = await repo.get_by_category_for_experiment("experiment_org",     exp_id)
     exp_noniid  = await repo.get_by_category_for_experiment("experiment_noniid",  exp_id)
-    iid_cm      = await repo.get_confusion_matrix_like(f"{exp_id}__iid")
-    noniid_cm   = await repo.get_confusion_matrix_like(f"{exp_id}__non_iid")
+    iid_cm = await repo.get_confusion_matrix(f"{exp_id}__{mode}__local_pooled")
+    noniid_cm = await repo.get_confusion_matrix(f"{exp_id}__{mode}")
 
-    iid_metrics    = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__iid")}
+    iid_metrics    = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__" + mode)}
     noniid_metrics = {m.metric_name: m.metric_value for m in exp_summary if m.model_type.endswith("__non_iid")}
-    iid_org        = [m for m in exp_org     if m.model_type.endswith("__iid")]
-    iid_rounds     = [m for m in exp_rounds  if m.model_type.endswith("__iid")]
+    iid_org        = [m for m in exp_org     if m.model_type.endswith("__" + mode)]
+    iid_rounds     = [m for m in exp_rounds  if m.model_type.endswith("__" + mode)]
 
     # Local averages
     local_accs = [m.metric_value for m in iid_org if m.metric_name == "accuracy__local"]
     local_f1s  = [m.metric_value for m in iid_org if m.metric_name == "f1__local"]
-    local_fprs = [m.metric_value for m in iid_org if m.metric_name == "precision__local"]
+    local_fprs = [m.metric_value for m in iid_org if m.metric_name == "false_positive_rate__local"]
 
     fed_acc      = iid_metrics.get("accuracy",            0.0)
     local_avg_acc = round(sum(local_accs) / len(local_accs), 2) if local_accs else 0.0
@@ -633,12 +665,16 @@ async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> Per
         f1_gain=round(fed_f1 - local_avg_f1, 2),
         federated_fpr=fed_fpr,
         local_avg_fpr=round(sum(local_fprs) / len(local_fprs), 2) if local_fprs else 0.0,
-        fpr_reduction=0.0,
+        fpr_reduction=round(sum(local_fprs)/len(local_fprs)-fed_fpr, 2) if local_fprs else 0.0,
+        binary_false_positive_rate=iid_metrics.get("binary_false_positive_rate"),
+        binary_attack_detection_rate=iid_metrics.get("binary_attack_detection_rate"),
     )
 
     # Metric comparisons
     metric_comparisons = []
-    for label in ["accuracy", "precision", "recall", "f1", "false_positive_rate"]:
+    for label in ["accuracy", "precision", "recall", "f1", "false_positive_rate", "binary_attack_detection_rate", "binary_false_positive_rate"]:
+        if label not in iid_metrics or not any(m.metric_name == f"{label}__local" for m in iid_org):
+            continue
         fed_val    = iid_metrics.get(label, 0.0)
         local_vals = [m.metric_value for m in iid_org if m.metric_name == f"{label}__local"]
         local_avg  = round(sum(local_vals) / len(local_vals), 2) if local_vals else 0.0
@@ -647,7 +683,7 @@ async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> Per
             local=local_avg,
             federated=fed_val,
             unit="%",
-            higher_is_better=(label != "false_positive_rate"),
+            higher_is_better=label not in ("false_positive_rate", "binary_false_positive_rate"),
         ))
 
     # Per-org performance
@@ -673,6 +709,7 @@ async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> Per
 
     # Non-IID results
     noniid_results = []
+    iid_reference = next((m.metric_value for m in exp_summary if m.model_type.endswith("__iid") and m.metric_name == "accuracy"), None)
     noniid_labels = sorted(set(m.model_type for m in exp_noniid))
     for label in noniid_labels:
         rows = {m.metric_name: m.metric_value for m in exp_noniid if m.model_type == label}
@@ -682,7 +719,7 @@ async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> Per
             alpha=rows.get("noniid_scenario", 0.0),
             local_avg_accuracy=rows.get("local_avg_accuracy", 0.0),
             federated_accuracy=rows.get("federated_accuracy", 0.0),
-            robustness_score=int(rows.get("robustness_score", 0)),
+            robustness_score=round(100 * rows["federated_accuracy"] / iid_reference, 2) if iid_reference and "federated_accuracy" in rows else None,
         ))
 
     # Round metrics
@@ -732,10 +769,12 @@ async def _get_performance_from_experiment(repo: MetricRepo, exp_id: str) -> Per
         non_iid_results=noniid_results,
         round_metrics=round_metrics,
         collaboration_benefit=collab,
-        local_confusion_matrix=ConfusionMatrix(labels=labels, model_type="iid",     cells=iid_cells),
-        federated_confusion_matrix=ConfusionMatrix(labels=labels, model_type="non_iid", cells=noniid_cells),
+        local_confusion_matrix=ConfusionMatrix(labels=labels, model_type="local_pooled", cells=iid_cells),
+        federated_confusion_matrix=ConfusionMatrix(labels=labels, model_type=mode, cells=noniid_cells),
         data_source=f"experiment:{exp_id}",
         experiment_id=exp_id,
+        evaluation_mode=mode,
+        local_confusion_note="Pooled independent local predictions on the same test records (one prediction per client per record)." if iid_cells else "Historical experiment did not record independent local confusion matrices.",
     )
 
 
@@ -754,7 +793,7 @@ async def _get_performance_old_format(repo: MetricRepo) -> PerformanceResponse:
 
     local_accs = [m.metric_value for m in iid_org if m.metric_name == "accuracy__local"]
     local_f1s  = [m.metric_value for m in iid_org if m.metric_name == "f1__local"]
-    local_fprs = [m.metric_value for m in iid_org if m.metric_name == "precision__local"]
+    local_fprs = [m.metric_value for m in iid_org if m.metric_name == "false_positive_rate__local"]
 
     fed_acc       = iid_metrics.get("accuracy",            0.0)
     local_avg_acc = round(sum(local_accs) / len(local_accs), 2) if local_accs else 0.0
@@ -804,7 +843,7 @@ async def _get_performance_old_format(repo: MetricRepo) -> PerformanceResponse:
             scenario=label, alpha=rows.get("noniid_scenario", 0.0),
             local_avg_accuracy=rows.get("local_avg_accuracy", 0.0),
             federated_accuracy=rows.get("federated_accuracy", 0.0),
-            robustness_score=int(rows.get("robustness_score", 0)),
+            robustness_score=None,
         ))
 
     round_nums = sorted(set(m.round_number for m in iid_rounds if m.round_number is not None))
@@ -837,8 +876,8 @@ async def _get_performance_old_format(repo: MetricRepo) -> PerformanceResponse:
     return PerformanceResponse(
         summary=summary, metric_comparisons=metric_comparisons, org_performance=org_perf,
         non_iid_results=noniid_results, round_metrics=round_metrics, collaboration_benefit=collab,
-        local_confusion_matrix=ConfusionMatrix(labels=labels, model_type="iid",     cells=iid_cells),
-        federated_confusion_matrix=ConfusionMatrix(labels=labels, model_type="non_iid", cells=noniid_cells),
+        local_confusion_matrix=ConfusionMatrix(labels=labels, model_type="local_pooled", cells=[]),
+        federated_confusion_matrix=ConfusionMatrix(labels=labels, model_type="iid", cells=iid_cells),
         data_source="experiment:legacy",
     )
 
@@ -899,12 +938,14 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
     train_repo   = TrainingRepo(db)
     org_repo     = OrganizationRepo(db)
 
-    events         = await privacy_repo.get_security_events()
+    events = await privacy_repo.get_security_events(include_demo=False)
     exp_id         = await metric_repo.get_latest_experiment_id()
     has_experiments = exp_id is not None
+    exp_meta = await metric_repo.get_experiment_metadata(exp_id) if exp_id else {}
+    mode = "non_iid" if exp_meta.get("deployed_non_iid") else "iid"
 
     # Real DP event counts from metrics
-    privacy_events   = await metric_repo.get_by_category("privacy_event")
+    privacy_events = [e for e in await metric_repo.get_by_category_for_experiment("privacy_event", exp_id) if e.model_type.endswith("__" + mode)] if exp_id else []
     clipping_events  = [e for e in privacy_events if e.metric_name == "clipping"]
     noise_events     = [e for e in privacy_events if e.metric_name == "noise_addition"]
     validation_events= [e for e in privacy_events if e.metric_name == "validation"]
@@ -914,11 +955,11 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
     dp_config: dict[str, float] = {}
     if has_experiments:
         exp_priv = await metric_repo.get_by_category_for_experiment("privacy_event", exp_id)
-        iid_privacy = [e for e in exp_priv if e.model_type and e.model_type.endswith("__iid")]
+        iid_privacy = [e for e in exp_priv if e.model_type and e.model_type.endswith("__" + mode)]
         dp_config = {e.metric_name.replace("config__", ""): e.metric_value
                      for e in iid_privacy if e.metric_name.startswith("config__")}
 
-    mechanisms_implemented = 3 if has_experiments else 1
+    mechanisms_implemented = sum(bool(dp_config.get(k)) for k in ("clipping_enabled", "dp_noise_enabled", "validation_enabled"))
     mechanisms_planned     = 1
 
     # Org update statuses from real client_participations for latest experiment round
@@ -928,7 +969,8 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
         exp_meta     = await metric_repo.get_experiment_metadata(exp_id)
         total_rounds = int(exp_meta.get("number_of_rounds", 0))
         all_orgs     = await org_repo.get_all()
-        participations = await train_repo.get_all_participations()
+        client_rows = await metric_repo.get_by_category_for_experiment("experiment_client_round", exp_id)
+        client_rows = [m for m in client_rows if m.model_type.endswith("__" + mode) and m.round_number == total_rounds]
 
         # Use experiment org IDs from experiment_org metrics
         exp_org = await metric_repo.get_by_category_for_experiment("experiment_org", exp_id)
@@ -938,30 +980,17 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
         participating_orgs = [o for o in all_orgs if o.id in exp_org_ids]
 
         for org in participating_orgs:
-            # Find the latest participation record for this org
-            org_parts = sorted(
-                [p for p in participations if p.org_id == org.id],
-                key=lambda x: x.round_id,
-                reverse=True,
-            )
-            latest_part = org_parts[0] if org_parts else None
-
-            update_size = None
-            submitted_at = None
-            validation_passed = None
-            notes = "Participated in experiment"
-
-            if latest_part:
-                update_size = f"{latest_part.update_size_mb:.1f} MB" if latest_part.update_size_mb else None
-                submitted_at = latest_part.training_round.completed_at if latest_part.training_round else None
-                validation_passed = latest_part.status == "completed"
-                notes = "Clipped + noise added + validated." if has_experiments else "Completed."
+            last = {m.metric_name:m.metric_value for m in client_rows if m.org_id == org.id}
+            update_size = f"{last['update_size_bytes']/1_000_000:.3f} MB" if "update_size_bytes" in last else None
+            submitted_at = None  # per-client timestamps not recorded
+            validation_passed = bool(last["validation_passed"]) if "validation_passed" in last else None
+            notes = "Simulated client update; structural validation only." if last else "Historical participation; no client-level validation record."
 
             org_update_statuses.append(OrgUpdateStatus(
                 org_id=org.id,
                 org_name=org.name,
                 round=total_rounds,
-                update_status="submitted",
+                update_status=("submitted" if validation_passed else "rejected") if validation_passed is not None else "pending",
                 update_size=update_size,
                 submitted_at=submitted_at,
                 validation_passed=validation_passed,
@@ -982,60 +1011,60 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
             model_updates_only=True,
             privacy_mechanisms_implemented=mechanisms_implemented,
             privacy_mechanisms_planned=mechanisms_planned,
-            security_events_last_24h=len(events),
-            unauthorized_attempts_blocked=reject_count,
+            security_events_last_24h=privacy_repo.count_last_24h(events),
+            unauthorized_attempts_blocked=0,
         ),
         properties=[
             PrivacyProperty(
                 id="data-locality", label="Data Locality",
                 category="data_locality",
-                description="Organisation raw data never leaves the local environment.",
+                description="Client training partitions are kept separate in the simulation.",
                 status="enforced",
-                detail="Enforced by FL architecture — only model weight updates are transmitted. "
-                       "Raw training features and labels remain on-device.",
+                detail="Simulated clients share model parameters, not training records. "
+                       "Single-process experiment with shared training statistics.",
                 planned=False,
             ),
             PrivacyProperty(
                 id="model-updates", label="Model Updates Only",
                 category="model_update",
-                description="Only model parameter deltas are sent to the aggregation server.",
+                description="Model parameter arrays are passed to the simulated aggregator.",
                 status="enforced",
-                detail="Flower NumPyClient transmits List[np.ndarray] of weight matrices. "
-                       "No raw samples, labels, or intermediate activations are included.",
+                detail="Simulation aggregates model parameter arrays. "
+                       "No actual network transmission is measured.",
                 planned=False,
             ),
             PrivacyProperty(
                 id="update-clipping", label=f"Update Clipping (L2 Norm ≤ {clip_norm})",
                 category="model_update",
                 description="Model updates are clipped to a maximum L2 norm before transmission.",
-                status="enforced" if has_experiments else "planned",
+                status="enforced" if dp_config.get("clipping_enabled") else "planned",
                 detail=(
-                    f"Applied to {clip_count} updates across experiments. "
+                    f"Recorded {clip_count} clipping-stage events in this simulated run. "
                     f"clip_norm={clip_norm}."
-                ) if has_experiments else "Planned: L2 norm clipping with configurable bound.",
-                planned=not has_experiments,
+                ) if dp_config.get("clipping_enabled") else "Planned: L2 norm clipping with configurable bound.",
+                planned=not bool(dp_config.get("clipping_enabled")),
             ),
             PrivacyProperty(
-                id="dp-noise", label="Differential Privacy (Gaussian Mechanism)",
+                id="dp-noise", label="Gaussian Noise (simulation)",
                 category="model_update",
-                description="Calibrated Gaussian noise added to model updates for formal (ε,δ)-DP.",
-                status="enforced" if has_experiments else "planned",
+                description="Gaussian noise added to trainable parameters; formal differential privacy is not established.",
+                status="enforced" if dp_config.get("dp_noise_enabled") else "planned",
                 detail=(
-                    f"Applied to {noise_count} updates. "
-                    f"noise_std={noise_std}, ε≈{epsilon:.2f}/round, δ={delta:.0e}."
-                ) if has_experiments else "Planned: Gaussian mechanism with calibrated noise.",
-                planned=not has_experiments,
+                    f"Recorded {noise_count} noise-stage events. "
+                    f"noise_std={noise_std}. Formal DP not established; deterministic simulation noise and unprotected buffers."
+                ) if dp_config.get("dp_noise_enabled") else "Planned: Gaussian mechanism with calibrated noise.",
+                planned=not bool(dp_config.get("dp_noise_enabled")),
             ),
             PrivacyProperty(
                 id="server-validation", label="Server-Side Update Validation",
                 category="aggregation",
                 description="Server validates incoming updates for structural integrity and anomalies.",
-                status="enforced" if has_experiments else "planned",
+                status="enforced" if dp_config.get("validation_enabled") else "planned",
                 detail=(
                     f"Checks structural match, NaN/Inf, L2 norm bounds, and extreme values. "
                     f"{reject_count} updates rejected."
-                ) if has_experiments else "Planned: Structural and anomaly validation.",
-                planned=not has_experiments,
+                ) if dp_config.get("validation_enabled") else "Planned: Structural and anomaly validation.",
+                planned=not bool(dp_config.get("validation_enabled")),
             ),
             PrivacyProperty(
                 id="sec-agg", label="Secure Aggregation",
@@ -1047,6 +1076,7 @@ async def get_privacy(db: AsyncSession) -> PrivacyResponse:
             ),
         ],
         org_update_statuses=org_update_statuses,
+        historical_demo_event_count=len(await privacy_repo.get_security_events()) - len(events),
         security_events=[
             SecurityEvent(
                 id=e.id, timestamp=e.timestamp,

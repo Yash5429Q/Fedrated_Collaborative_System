@@ -143,8 +143,33 @@ class TestNormalizationArtifact:
         assert float(data["epsilon"]) == pytest.approx(1e-8, abs=1e-12)
 
     def test_normalization_method(self):
-        data = np.load(MODELS_DIR / "latest" / "normalization.npz", allow_pickle=True)
-        assert str(data["normalization_method"]) == "zscore"
+        checkpoint = MODELS_DIR / "latest"
+        metadata = json.loads((checkpoint / "metadata.json").read_text(encoding="utf-8"))
+        with np.load(checkpoint / "normalization.npz", allow_pickle=False) as data:
+            method = str(data["normalization_method"].item())
+            assert method in {"zscore", "robust_zscore_v1"}
+            assert method == metadata["normalization_method"]
+            assert np.isfinite(data["mean"]).all()
+            assert np.isfinite(data["std"]).all()
+            assert (data["std"] > 0).all()
+            assert list(data["feature_names"]) == list(FEATURE_NAMES)
+
+            if method == "robust_zscore_v1":
+                config = json.loads(str(data["preprocessing_json"].item()))
+                assert config == metadata["preprocessing"]
+                assert config["version"] == method
+                assert float(config["clip_abs"]) == pytest.approx(10.0)
+                assert metadata["normalization_scope"] == "training_only"
+                medians = config["negative_medians"]
+                assert set(medians) == {
+                    "min_seg_size_forward", "Fwd Header Length.1",
+                    "Fwd Header Length", "Bwd Header Length",
+                }
+                assert all(math.isfinite(v) and v >= 0 for v in medians.values())
+            else:
+                assert not metadata.get("preprocessing")
+                if "preprocessing_json" in data:
+                    assert json.loads(str(data["preprocessing_json"].item())) is None
 
 
 # ── Checkpoint Tests ───────────────────────────────────────────

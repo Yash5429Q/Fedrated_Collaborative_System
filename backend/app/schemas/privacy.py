@@ -56,3 +56,5 @@ class PrivacyResponse(BaseModel):
     org_update_statuses: List[OrgUpdateStatus]
     security_events: List[SecurityEvent]
     data_source: str = "database"
+    historical_demo_event_count: int = 0
+    access_control_note: str = "No verified access-control enforcement evidence; zero blocked attempts is not proof of authorization safety."
