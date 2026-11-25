@@ -1,0 +1,12 @@
+# Minimal CPU inference/API runtime. Keep requirements.txt for training and tests.
+# Install the CPU-only PyTorch wheel separately before this file (see render.yaml).
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+python-dotenv==1.0.1
+numpy==2.5.2
+# CPU torch must already be installed from the official CPU wheel index.
+torch==2.14.0+cpu

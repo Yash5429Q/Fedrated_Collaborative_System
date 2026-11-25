@@ -2,16 +2,30 @@ services:
   - type: web
     name: cyber20-backend
     runtime: python
+    branch: main
+    plan: free
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    buildCommand: >-
+      python -m pip install --upgrade pip &&
+      python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.14.0+cpu' &&
+      python -m pip install -r requirements-deploy.txt &&
+      python -m pip check
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.10"
       - key: ENVIRONMENT
         value: production
       - key: DEBUG
         value: "false"
       - key: DATABASE_URL
-        sync: false
+        value: sqlite+aiosqlite:///./cyber20.db
       - key: CORS_ORIGINS
         sync: false
+      - key: ACCESS_REGISTRY_PATH
+        value: /etc/secrets/access.json
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"

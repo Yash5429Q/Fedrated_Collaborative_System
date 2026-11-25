@@ -534,37 +534,71 @@ _CLASS_NAMES = ["Normal", "DoS", "Brute Force", "Port Scan", "Malware"]
 
 
 async def seed_experiments_if_empty(db: AsyncSession) -> None:
-    """Insert real CICIDS2017 experiment data from experiment_results.json if missing.
+    """Seed the experiment matching models/latest, without replacing existing records.
 
-    Idempotent: exits immediately if experiment_metadata records already exist.
-    Never overwrites or deletes existing experiment records.
+    Production fails closed on missing or inconsistent deployment metadata.
+    A legacy local checkout without a deployed metadata file may use the old
+    experiment_results.json for development only.
     """
+    from app.core.config import get_settings
+    root = Path(__file__).resolve().parent.parent.parent
+    production = get_settings().environment.lower() == "production"
     repo = MetricRepo(db)
-    if await repo.get_latest_experiment_id() is not None:
-        logger.info("Experiment metadata already present — skipping experiment seed.")
-        return
+    existing_id = await repo.get_latest_experiment_id()
+    meta_path = root / "models" / "latest" / "metadata.json"
 
-    json_path = Path(__file__).resolve().parent.parent.parent / "experiment_results.json"
-    if not json_path.is_file():
-        logger.warning("experiment_results.json not found at %s — skipping experiment seed.", json_path)
-        return
+    if not meta_path.is_file():
+        if production:
+            raise RuntimeError("Deployment checkpoint metadata is missing")
+        if existing_id is not None:
+            return
+        legacy = root / "experiment_results.json"
+        if not legacy.is_file():
+            logger.warning("No experiment results available for local development")
+            return
+        data = json.loads(legacy.read_text(encoding="utf-8"))
+        mode = None
+    else:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        exp_id = meta.get("experiment_id")
+        mode = meta.get("mode")
+        if not isinstance(exp_id, str) or not exp_id.startswith("exp_") or Path(exp_id).name != exp_id or "/" in exp_id or "\\" in exp_id:
+            raise RuntimeError("Invalid deployed experiment ID")
+        if mode not in ("iid", "non_iid"):
+            raise RuntimeError("Invalid deployed checkpoint mode")
+        if existing_id is not None:
+            stored = await repo.get_experiment_metadata(existing_id)
+            expected_mode = float(mode == "non_iid")
+            if existing_id == exp_id and stored.get("deployed_non_iid") == expected_mode:
+                logger.info("Matching deployed experiment already present — skipping seed.")
+                return
+            message = "Database experiment does not match deployed checkpoint; use offline activation or a fresh database"
+            if production:
+                raise RuntimeError(message)
+            logger.warning(message)
+            return
+        result_path = root / f"{exp_id}_results.json"
+        if not result_path.is_file():
+            if production:
+                raise RuntimeError("Results for deployed checkpoint are missing")
+            logger.warning("Matching experiment results missing; no experiment metrics seeded.")
+            return
+        data = json.loads(result_path.read_text(encoding="utf-8"))
+        if data.get("experiment_id") != exp_id or data.get("exported_mode") != mode:
+            raise RuntimeError("Deployed experiment identity or mode mismatch")
+        exp = data[mode]
+        if (meta.get("seed") != exp.get("split_seed")
+                or meta.get("best_round") != exp.get("best_round")
+                or meta.get("split_counts") != exp.get("split_counts")
+                or meta.get("preprocessing") != exp.get("preprocessing")
+                or (meta.get("decision_rule") or {}).get("version") != (exp.get("decision_rule") or {}).get("version")
+                or (meta.get("decision_rule") or {}).get("attack_threshold") != (exp.get("decision_rule") or {}).get("attack_threshold")):
+            raise RuntimeError("Deployed checkpoint settings do not match experiment results")
 
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as exc:
-        logger.error("Failed to read %s: %s", json_path, exc)
-        return
-
-    experiment_id = data.get("experiment_id")
-    if not experiment_id:
-        logger.warning("experiment_results.json missing experiment_id.")
-        return
-
-    rows = build_experiment_rows(data)
+    rows = build_experiment_rows(data, deployment_mode=mode)
     db.add_all(rows)
     await db.commit()
-    logger.info("Successfully seeded %d experiment metric rows (experiment_id=%s).", len(rows), experiment_id)
+    logger.info("Successfully seeded %d experiment metric rows (experiment_id=%s).", len(rows), data["experiment_id"])
 
 
 def build_experiment_rows(data: dict, *, deployment_mode: str | None = None) -> list[Metric]:

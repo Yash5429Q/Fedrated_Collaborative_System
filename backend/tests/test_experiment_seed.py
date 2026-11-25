@@ -22,12 +22,12 @@ from app.database.seed import seed_experiments_if_empty, seed_if_empty
 from app.models.metric import Metric
 from app.repositories.metric_repo import MetricRepo
 
-# Read the expected experiment ID from experiment_results.json so the tests
-# stay correct after new experiment runs without manual edits.
-_RESULTS_PATH = Path(__file__).resolve().parent.parent / "experiment_results.json"
-with open(_RESULTS_PATH, "r", encoding="utf-8") as _f:
+# Frozen deployment candidate: independent expectation, not the seeder's output.
+EXPECTED_EXP_ID = "exp_20261125_173246_9acfd8aa"
+_RESULTS_PATH = Path(__file__).resolve().parent.parent / f"{EXPECTED_EXP_ID}_results.json"
+with _RESULTS_PATH.open(encoding="utf-8") as _f:
     _RESULTS_DATA = json.load(_f)
-EXPECTED_EXP_ID: str = _RESULTS_DATA["experiment_id"]
+assert _RESULTS_DATA["experiment_id"] == EXPECTED_EXP_ID
 
 
 @pytest.fixture
@@ -71,18 +71,19 @@ async def test_seed_experiments_success(async_session: AsyncSession):
 
     # Verify metadata fields via get_experiment_metadata
     metadata = await repo.get_experiment_metadata(latest_id)
-    assert metadata["number_of_rounds"] == 20.0
+    assert metadata["number_of_rounds"] == 8.0
+    assert metadata["deployed_non_iid"] == 1.0
     assert metadata["number_of_clients"] == 3.0
     assert metadata["total_samples"] == 37183.0
     assert metadata["dirichlet_alpha"] == 0.5
     assert metadata["local_epochs"] == 3.0
     assert metadata["dataset"] == "cicids2017"
 
-    # Verify round metrics are populated (20 rounds * 5 metrics * 2 modes = 200 rows)
+    # Verify round metrics are populated (8 rounds, both modes, including additional round metrics)
     round_metrics = await repo.get_by_category_for_experiment("experiment_round", latest_id)
-    assert len(round_metrics) > 0
+    assert len(round_metrics) == 144
     rounds_seen = {m.round_number for m in round_metrics}
-    assert set(range(1, 21)).issubset(rounds_seen)
+    assert rounds_seen == set(range(1, 9))
 
     # Verify org metrics are populated
     org_metrics = await repo.get_by_category_for_experiment("experiment_org", latest_id)
@@ -92,11 +93,13 @@ async def test_seed_experiments_success(async_session: AsyncSession):
 
     # Verify confusion matrix
     cm_metrics = await repo.get_by_category_for_experiment("confusion_matrix", latest_id)
-    assert len(cm_metrics) == 50  # 5x5 classes * 2 modes (iid + noniid)
+    assert len(cm_metrics) == 100  # global and pooled local matrices for both modes
 
     # Verify summary metrics
     summary_metrics = await repo.get_by_category_for_experiment("experiment_summary", latest_id)
-    assert len(summary_metrics) > 0
+    assert len(summary_metrics) == 28
+    accuracy = next(m.metric_value for m in summary_metrics if m.metric_name == "accuracy" and m.model_type == f"{EXPECTED_EXP_ID}__non_iid")
+    assert accuracy == pytest.approx(94.48)
 
     # Verify non-iid scenario metrics
     noniid_metrics = await repo.get_by_category_for_experiment("experiment_noniid", latest_id)
