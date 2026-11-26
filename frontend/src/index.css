@@ -41,3 +41,66 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-cyber-500);
 }
+
+/* Scoped secure access portal — dashboard styling remains unchanged. */
+.secure-access {
+  min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column;
+  justify-content: center; align-items: center; padding: 48px 24px 24px;
+  color: #e5edf8; color-scheme: dark;
+  background: radial-gradient(ellipse at 12% 18%, #12304788, transparent 46%),
+    radial-gradient(ellipse at 92% 82%, #14284599, transparent 44%), #0a101c;
+}
+.secure-shell { display: grid; grid-template-columns: 1.05fr 1fr; align-items: center; gap: 64px; width: min(100%, 1060px); margin: auto; }
+.secure-intro { padding: 12px 0; }
+.secure-brand { display: flex; align-items: center; gap: 14px; font-size: 23px; font-weight: 750; letter-spacing: .04em; }
+.secure-brand small { display: block; color: #91a7bf; font-size: 10px; font-weight: 600; letter-spacing: .13em; margin-top: 3px; }
+.secure-logo { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 15px; background: #123346; border: 1px solid #24586d; color: #67e8f9; }
+.secure-intro-copy { margin: 50px 0 32px; }
+.secure-eyebrow { display: flex; align-items: center; gap: 8px; color: #67e8f9; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.secure-dot { width: 7px; height: 7px; border-radius: 50%; background: #67e8f9; box-shadow: 0 0 12px #22d3ee88; flex-shrink: 0; }
+.secure-intro h1 { font-size: clamp(28px, 3.5vw, 43px); font-weight: 740; line-height: 1.18; letter-spacing: -.035em; margin: 17px 0; }
+.secure-intro h1 span { color: #67e8f9; }
+.secure-intro-copy p { color: #a5b6cc; font-size: 15px; line-height: 1.75; max-width: 440px; }
+.secure-features { display: grid; gap: 19px; }
+.secure-features > div { display: flex; gap: 13px; align-items: center; }
+.secure-features svg { width: 39px; height: 39px; padding: 10px; background: #14283b; border: 1px solid #243d52; border-radius: 10px; color: #67e8f9; flex-shrink: 0; }
+.secure-features strong, .secure-features small { display: block; }
+.secure-features strong { font-size: 14px; font-weight: 650; }
+.secure-features small { color: #9caec5; font-size: 12px; margin-top: 3px; }
+.secure-university { margin-top: 40px; color: #91a7bf; font-size: 12px; }
+.secure-university span, .secure-footer span { margin: 0 5px; color: #4d738c; }
+.secure-panel { min-width: 0; padding: 36px; border: 1px solid #2a3c52; border-radius: 22px; background: #101b2b; box-shadow: 0 24px 70px #0005; }
+.secure-access-tag { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #24536a; border-radius: 20px; padding: 6px 10px; color: #67e8f9; font-size: 10px; font-weight: 700; letter-spacing: .07em; }
+.secure-panel h2 { margin: 23px 0 8px; font-size: clamp(23px, 3vw, 29px); font-weight: 720; letter-spacing: -.025em; }
+.secure-subtitle { font-size: 14px; line-height: 1.65; color: #a5b6cc; }
+.secure-form { margin-top: 27px; display: grid; gap: 10px; }
+.secure-form label { font-size: 13px; font-weight: 650; }
+.secure-input-wrap { display: flex; align-items: center; gap: 10px; border: 1px solid #35465e; border-radius: 10px; background: #0b1422; padding-left: 13px; min-height: 51px; color: #91a7bf; }
+.secure-input-wrap:focus-within { border-color: #67e8f9; box-shadow: 0 0 0 3px #22d3ee20; }
+.secure-input-wrap > svg { flex-shrink: 0; }
+.secure-input-wrap input { flex: 1; min-width: 0; width: 100%; background: transparent; color: #f1f5f9; font-size: 14px; outline: none; padding: 13px 0; }
+.secure-input-wrap input::placeholder { color: #8c9db4; }
+.secure-eye { display: grid; place-items: center; width: 44px; min-height: 48px; flex-shrink: 0; border-radius: 8px; cursor: pointer; }
+.secure-eye:hover { color: #67e8f9; }
+.secure-eye:focus-visible, .secure-submit:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.secure-submit { display: flex; justify-content: center; align-items: center; gap: 10px; min-height: 49px; margin-top: 7px; border-radius: 10px; background: #2563eb; color: white; font-size: 14px; font-weight: 650; cursor: pointer; transition: background .15s; }
+.secure-submit:not(:disabled):hover { background: #1d4ed8; }
+.secure-submit:disabled { opacity: .58; cursor: not-allowed; }
+.secure-error { display: flex; gap: 9px; align-items: flex-start; padding: 11px; background: #7f1d1d33; border: 1px solid #f8717155; border-radius: 8px; color: #fecaca; font-size: 12px; line-height: 1.55; }
+.secure-error svg { flex-shrink: 0; }
+.secure-wait { color: #a5b6cc; font-size: 12px; line-height: 1.5; }
+.secure-spinner { animation: secure-spin 1s linear infinite; }
+@keyframes secure-spin { to { transform: rotate(360deg); } }
+.secure-role-heading { display: flex; align-items: center; gap: 12px; color: #9caec5; font-size: 10px; letter-spacing: .12em; font-weight: 650; margin: 28px 0 14px; }
+.secure-role-heading::after { content: ''; height: 1px; background: #29394d; flex: 1; }
+.secure-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.secure-roles > div { min-width: 0; display: grid; align-content: start; gap: 7px; padding: 14px; border: 1px solid #2a3c52; background: #0d1725; border-radius: 10px; }
+.secure-roles svg { color: #67e8f9; }
+.secure-roles strong { font-size: 13px; font-weight: 650; }
+.secure-roles small { color: #a5b6cc; font-size: 12px; line-height: 1.5; }
+.secure-note { display: flex; align-items: flex-start; gap: 9px; margin-top: 22px; color: #a5b6cc; font-size: 12px; line-height: 1.6; }
+.secure-note svg { flex-shrink: 0; margin-top: 2px; color: #91a7bf; }
+.secure-footer { text-align: center; font-size: 11px; color: #91a7bf; line-height: 1.7; margin-top: 36px; }
+@media (max-width: 850px) { .secure-shell { grid-template-columns: 1fr; max-width: 510px; gap: 26px; } .secure-intro-copy { margin: 24px 0 0; } .secure-intro h1 { margin: 12px 0; } .secure-features, .secure-university { display: none; } .secure-access { padding-top: 28px; } }
+@media (max-width: 420px) { .secure-access { padding: 20px 14px; } .secure-panel { padding: 23px 18px; border-radius: 16px; } .secure-roles { grid-template-columns: 1fr; } .secure-eyebrow { font-size: 9px; } }
+@media (prefers-reduced-motion: reduce) { .secure-spinner { animation: none; } .secure-submit { transition: none; } }
